@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { apiClient } from '../../../api/client';
+import { apiClient, getCustomerToken } from '../../../api/client';
 import { PrintInvoiceModal } from '../../../invoice/print/PrintInvoiceModal';
 import { AddressModal } from './AddressModal';
 import { Order, CustomerProfile, CustomerAddress, Product } from '../../../types';
@@ -77,6 +77,14 @@ export const AccountPage: React.FC<AccountPageProps> = ({ onNavigate }) => {
   const fetchCustomerData = async () => {
     try {
       setIsLoadingMain(true);
+      const token = getCustomerToken();
+      if (!token) {
+        setIsAuthenticated(false);
+        setAddresses([]);
+        setOrders([]);
+        return;
+      }
+
       const profileRes = await apiClient.customer.getProfile().catch(() => null);
 
       if (profileRes?.profile) {
@@ -89,42 +97,68 @@ export const AccountPage: React.FC<AccountPageProps> = ({ onNavigate }) => {
           gender: profileRes.profile.gender || ''
         });
         setIsAuthenticated(true);
+        // Load addresses and orders now that user is verified
+        await Promise.all([fetchAddresses(), fetchOrders()]);
       } else {
-        // Not authenticated
+        // Not authenticated or token invalid
         setIsAuthenticated(false);
+        setAddresses([]);
+        setOrders([]);
       }
     } catch {
       setIsAuthenticated(false);
+      setAddresses([]);
+      setOrders([]);
     } finally {
       setIsLoadingMain(false);
     }
   };
 
   const fetchAddresses = async () => {
+    const token = getCustomerToken();
+    if (!token) {
+      setAddresses([]);
+      return;
+    }
     try {
       setAddressLoading(true);
       const res = await apiClient.customer.getAddresses();
       if (res?.addresses) {
         setAddresses(res.addresses);
       }
-    } catch (err) {
-      console.error('Failed to load addresses:', err);
+    } catch (err: any) {
+      if (err?.message?.includes('Authentication required') || err?.message?.includes('token')) {
+        setIsAuthenticated(false);
+        setAddresses([]);
+      } else {
+        console.error('Failed to load addresses:', err);
+      }
     } finally {
       setAddressLoading(false);
     }
   };
 
   const fetchOrders = async () => {
+    const token = getCustomerToken();
+    if (!token) {
+      setOrders([]);
+      return;
+    }
     try {
       setOrdersLoading(true);
       const res = await apiClient.customer.getOrders().catch(() =>
-        apiClient.orders.myOrders().catch(() => apiClient.orders.list({ limit: 50 }))
+        apiClient.orders.myOrders().catch(() => null)
       );
       if (res?.orders) {
         setOrders(res.orders);
       }
-    } catch (err) {
-      console.error('Failed to load orders:', err);
+    } catch (err: any) {
+      if (err?.message?.includes('Authentication required') || err?.message?.includes('token')) {
+        setIsAuthenticated(false);
+        setOrders([]);
+      } else {
+        console.error('Failed to load orders:', err);
+      }
     } finally {
       setOrdersLoading(false);
     }
@@ -151,8 +185,6 @@ export const AccountPage: React.FC<AccountPageProps> = ({ onNavigate }) => {
 
   useEffect(() => {
     fetchCustomerData();
-    fetchOrders();
-    fetchAddresses();
     fetchWishlistItems();
   }, []);
 

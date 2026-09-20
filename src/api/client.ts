@@ -48,6 +48,13 @@ async function request<T>(endpoint: string, options: RequestInit = {}, isAdmin =
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok) {
+    if (response.status === 401 && token) {
+      if (isAdmin) {
+        setAdminToken(null);
+      } else {
+        setCustomerToken(null);
+      }
+    }
     throw new Error(data.error || `Request failed with status ${response.status}`);
   }
 
@@ -203,13 +210,23 @@ export const apiClient = {
   },
 
   customer: {
-    getProfile: () => request<{ success: boolean; profile: any }>('/customer/profile'),
+    getProfile: async () => {
+      if (!getCustomerToken()) {
+        return { success: false, profile: null };
+      }
+      return request<{ success: boolean; profile: any }>('/customer/profile');
+    },
     updateProfile: (data: { fullName: string; mobile: string; email?: string; dateOfBirth?: string; gender?: string }) =>
       request<{ success: boolean; profile: any; message: string }>('/customer/profile', {
         method: 'PUT',
         body: JSON.stringify(data)
       }),
-    getAddresses: () => request<{ success: boolean; addresses: any[] }>('/customer/addresses'),
+    getAddresses: async () => {
+      if (!getCustomerToken()) {
+        return { success: true, addresses: [] };
+      }
+      return request<{ success: boolean; addresses: any[] }>('/customer/addresses');
+    },
     createAddress: (data: any) =>
       request<{ success: boolean; address: any; message: string }>('/customer/addresses', {
         method: 'POST',
@@ -228,7 +245,12 @@ export const apiClient = {
       request<{ success: boolean; message: string }>(`/customer/addresses/${id}/default`, {
         method: 'PATCH'
       }),
-    getOrders: () => request<{ success: boolean; orders: any[]; total: number }>('/customer/orders')
+    getOrders: async () => {
+      if (!getCustomerToken()) {
+        return { success: true, orders: [], total: 0 };
+      }
+      return request<{ success: boolean; orders: any[]; total: number }>('/customer/orders');
+    }
   },
 
   postal: {
@@ -261,8 +283,16 @@ export const apiClient = {
     },
     getTracking: (id: string) =>
       request<{ success: boolean; order: any; trackingEvents: any[] }>(`/orders/${id}/tracking`),
-    myOrders: () => request<{ success: boolean; orders: any[]; total: number }>('/orders/my-orders'),
-    list: (params?: Record<string, any>) => {
+    myOrders: async () => {
+      if (!getCustomerToken()) {
+        return { success: true, orders: [], total: 0 };
+      }
+      return request<{ success: boolean; orders: any[]; total: number }>('/orders/my-orders');
+    },
+    list: async (params?: Record<string, any>) => {
+      if (!getAdminToken()) {
+        return { success: false, orders: [], total: 0 };
+      }
       const searchParams = new URLSearchParams();
       if (params) {
         Object.entries(params).forEach(([k, v]) => {

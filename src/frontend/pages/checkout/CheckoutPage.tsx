@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { CartItem, CustomerDetails, ShippingAddress, Order, CustomerAddress } from '../../../types';
 import { cartManager } from '../../../utils/cartManager';
-import { apiClient } from '../../../api/client';
+import { apiClient, getCustomerToken } from '../../../api/client';
 import { paymentService } from '../../../backend/services/paymentService';
 import { notificationService } from '../../../backend/services/notificationService';
 import {
@@ -87,6 +87,8 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
   // Load Customer Profile & Saved Addresses on Mount
   useEffect(() => {
     let isCancelled = false;
+    const token = getCustomerToken();
+    if (!token) return;
 
     apiClient.customer
       .getProfile()
