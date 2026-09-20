@@ -6,28 +6,44 @@ declare global {
   var _postgresPool: Pool | undefined;
 }
 
+export const hasPostgresConfig = (): boolean => {
+  return Boolean(
+    (process.env.DATABASE_URL && process.env.DATABASE_URL.trim() !== '') ||
+    (process.env.SQL_HOST && process.env.SQL_HOST.trim() !== '') ||
+    (process.env.PGHOST && process.env.PGHOST.trim() !== '')
+  );
+};
+
 export const createPool = () => {
   if (!global._postgresPool) {
-    const connectionString = process.env.DATABASE_URL;
-    global._postgresPool = new Pool(
-      connectionString
-        ? { connectionString, connectionTimeoutMillis: 3000 }
-        : {
-            host: process.env.SQL_HOST || '127.0.0.1',
-            user: process.env.SQL_USER,
-            password: process.env.SQL_PASSWORD,
-            database: process.env.SQL_DB_NAME,
-            max: 10,
-            connectionTimeoutMillis: 3000,
-          }
-    );
+    if (hasPostgresConfig()) {
+      const connectionString = process.env.DATABASE_URL;
+      global._postgresPool = new Pool(
+        connectionString
+          ? { connectionString, connectionTimeoutMillis: 3000 }
+          : {
+              host: process.env.SQL_HOST || process.env.PGHOST,
+              user: process.env.SQL_USER || process.env.PGUSER,
+              password: process.env.SQL_PASSWORD || process.env.PGPASSWORD,
+              database: process.env.SQL_DB_NAME || process.env.PGDATABASE,
+              max: 10,
+              connectionTimeoutMillis: 3000,
+            }
+      );
 
-    global._postgresPool.on('error', (err) => {
-      // Suppress unhandled idle client error if DB is offline
-      if (process.env.NODE_ENV !== 'production') {
+      global._postgresPool.on('error', (err) => {
         console.warn('[Postgres Pool Warning]:', err.message);
-      }
-    });
+      });
+    } else {
+      // Mock pool when no PostgreSQL connection string is configured
+      global._postgresPool = {
+        query: async () => {
+          throw new Error('PostgreSQL credentials not configured. In-memory store active.');
+        },
+        on: () => {},
+        end: async () => {}
+      } as unknown as Pool;
+    }
   }
   return global._postgresPool;
 };

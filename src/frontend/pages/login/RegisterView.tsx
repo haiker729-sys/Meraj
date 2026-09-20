@@ -6,14 +6,18 @@ import { apiClient } from '../../../api/client';
 interface RegisterViewProps {
   onSuccess: (user: any) => void;
   onSwitchToLogin: () => void;
+  initialFullName?: string;
+  initialMobile?: string;
 }
 
 export const RegisterView: React.FC<RegisterViewProps> = ({
   onSuccess,
-  onSwitchToLogin
+  onSwitchToLogin,
+  initialFullName = '',
+  initialMobile = ''
 }) => {
-  const [fullName, setFullName] = useState('');
-  const [mobile, setMobile] = useState('');
+  const [fullName, setFullName] = useState(initialFullName);
+  const [mobile, setMobile] = useState(initialMobile);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);

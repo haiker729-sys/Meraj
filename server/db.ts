@@ -1,7 +1,7 @@
 import { Pool, PoolClient } from 'pg';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
-import { pool } from '../src/db/index';
+import { pool, hasPostgresConfig } from '../src/db/index';
 import { INITIAL_PRODUCTS, INITIAL_COUPONS, INITIAL_BANNERS, STORE_CONFIG } from '../src/database/seed/productsData';
 import { inMemoryDb } from './inMemoryDb';
 
@@ -123,6 +123,12 @@ class PostgresDatabaseManager {
 
     this.initPromise = (async () => {
       try {
+        if (!hasPostgresConfig()) {
+          this.isPostgresAvailable = false;
+          this.isInitialized = true;
+          return;
+        }
+
         // Quick connection check to verify if PostgreSQL is actually available
         await Promise.race([
           this.pool.query('SELECT 1'),
@@ -130,6 +136,144 @@ class PostgresDatabaseManager {
         ]);
         this.isPostgresAvailable = true;
         console.log('[Fashion Point] PostgreSQL is connected.');
+
+        // Ensure all core tables exist in PostgreSQL
+        await this.pool.query(`
+          CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            uid TEXT NOT NULL UNIQUE,
+            email TEXT,
+            phone TEXT,
+            password_hash TEXT,
+            full_name TEXT,
+            role TEXT DEFAULT 'CUSTOMER',
+            date_of_birth TEXT,
+            gender TEXT,
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+          );
+          CREATE TABLE IF NOT EXISTS admins (
+            id TEXT PRIMARY KEY,
+            username TEXT NOT NULL UNIQUE,
+            password_hash TEXT NOT NULL,
+            full_name TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'STORE_MANAGER',
+            phone TEXT,
+            email TEXT,
+            is_active BOOLEAN NOT NULL DEFAULT TRUE,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            last_login_at TIMESTAMP WITH TIME ZONE
+          );
+          CREATE TABLE IF NOT EXISTS categories (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            slug TEXT NOT NULL UNIQUE,
+            image TEXT
+          );
+          CREATE TABLE IF NOT EXISTS products (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            slug TEXT NOT NULL,
+            category_id TEXT,
+            category TEXT,
+            sub_category TEXT,
+            description TEXT,
+            price INTEGER NOT NULL,
+            mrp INTEGER NOT NULL,
+            discount INTEGER DEFAULT 0,
+            sizes JSONB,
+            colors JSONB,
+            stock INTEGER NOT NULL DEFAULT 0,
+            sku TEXT,
+            status TEXT DEFAULT 'PUBLISHED',
+            is_featured BOOLEAN DEFAULT FALSE,
+            is_new_arrival BOOLEAN DEFAULT FALSE,
+            is_bestseller BOOLEAN DEFAULT FALSE,
+            is_active BOOLEAN DEFAULT TRUE,
+            images JSONB,
+            rating DOUBLE PRECISION DEFAULT 4.8,
+            reviews_count INTEGER DEFAULT 0,
+            material TEXT,
+            care_instructions TEXT,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+          );
+          CREATE TABLE IF NOT EXISTS coupons (
+            id TEXT PRIMARY KEY,
+            code TEXT NOT NULL UNIQUE,
+            discount_type TEXT NOT NULL,
+            discount_value INTEGER NOT NULL,
+            min_order_amount INTEGER DEFAULT 0,
+            max_discount_amount INTEGER,
+            usage_limit INTEGER DEFAULT 500,
+            usage_count INTEGER DEFAULT 0,
+            is_active BOOLEAN DEFAULT TRUE,
+            expires_at TIMESTAMP WITH TIME ZONE,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+          );
+          CREATE TABLE IF NOT EXISTS banners (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            subtitle TEXT,
+            cta_text TEXT,
+            link TEXT,
+            badge TEXT,
+            image TEXT NOT NULL,
+            is_active BOOLEAN DEFAULT TRUE,
+            sort_order INTEGER DEFAULT 0
+          );
+          CREATE TABLE IF NOT EXISTS store_settings (
+            id TEXT PRIMARY KEY,
+            settings JSONB NOT NULL
+          );
+          CREATE TABLE IF NOT EXISTS customer_addresses (
+            id TEXT PRIMARY KEY,
+            user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+            full_name TEXT NOT NULL,
+            mobile_number TEXT NOT NULL,
+            house_building TEXT NOT NULL,
+            street_area TEXT NOT NULL,
+            village_town_city TEXT NOT NULL,
+            post_office TEXT,
+            district TEXT NOT NULL,
+            state TEXT NOT NULL,
+            pin_code TEXT NOT NULL,
+            landmark TEXT,
+            address_type TEXT NOT NULL DEFAULT 'HOME',
+            is_default BOOLEAN DEFAULT FALSE,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+          );
+          CREATE TABLE IF NOT EXISTS orders (
+            id TEXT PRIMARY KEY,
+            customer_name TEXT NOT NULL,
+            customer_phone TEXT NOT NULL,
+            customer_email TEXT,
+            shipping_address JSONB NOT NULL,
+            items JSONB NOT NULL,
+            subtotal INTEGER NOT NULL,
+            tax_amount INTEGER DEFAULT 0,
+            shipping_fee INTEGER DEFAULT 0,
+            discount_amount INTEGER DEFAULT 0,
+            coupon_code TEXT,
+            grand_total INTEGER NOT NULL,
+            payment_method TEXT NOT NULL,
+            payment_status TEXT NOT NULL DEFAULT 'PENDING',
+            order_status TEXT NOT NULL DEFAULT 'PLACED',
+            status TEXT DEFAULT 'PLACED',
+            tracking_number TEXT,
+            awb_number TEXT,
+            courier_name TEXT,
+            current_location TEXT,
+            razorpay_order_id TEXT,
+            razorpay_payment_id TEXT,
+            admin_note TEXT,
+            timeline JSONB DEFAULT '[]'::jsonb,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+          );
+        `);
 
         // 1. Verify categories
         const catCheck = await this.pool.query('SELECT count(*)::int as count FROM categories');
@@ -1111,10 +1255,17 @@ class PostgresDatabaseManager {
   public async getUserByEmailOrMobile(identifier: string) {
     await this.initDatabase();
     const clean = identifier.trim().toLowerCase();
+    const cleanDigits = identifier.replace(/\D/g, '').slice(-10);
     const res = await this.pool.query(
       `SELECT id, uid, email, phone, password_hash as "passwordHash", full_name as "fullName", role, is_active as "isActive", created_at as "createdAt"
-       FROM users WHERE LOWER(email) = $1 OR phone = $1 OR phone = $2 LIMIT 1`,
-      [clean, identifier.replace(/\D/g, '').slice(-10)]
+       FROM users 
+       WHERE LOWER(email) = $1 
+          OR phone = $1 
+          OR (length($2) >= 10 AND phone = $2)
+          OR LOWER(full_name) = $1 
+          OR uid = $1 
+       LIMIT 1`,
+      [clean, cleanDigits]
     );
     return res.rows[0] || null;
   }

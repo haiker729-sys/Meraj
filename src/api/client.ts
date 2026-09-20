@@ -55,7 +55,10 @@ async function request<T>(endpoint: string, options: RequestInit = {}, isAdmin =
         setCustomerToken(null);
       }
     }
-    throw new Error(data.error || `Request failed with status ${response.status}`);
+    const fallbackMsg = response.status === 500
+      ? 'Server connection temporarily unavailable. Please try signing in with OTP or refresh the page.'
+      : `Request failed with status ${response.status}`;
+    throw new Error(data.error || fallbackMsg);
   }
 
   return data as T;

@@ -138,8 +138,28 @@ router.post('/login', async (req: Request, res: Response) => {
       return;
     }
 
-    // 2. Query user from database
-    const user = await db.getUserByEmailOrMobile(identifier);
+    // 2. Query user from database (with admin fallback for seamless store owner login)
+    let user = await db.getUserByEmailOrMobile(identifier);
+    let isAdminAuth = false;
+
+    if (!user) {
+      const admin = await db.getAdminByUsername(identifier);
+      if (admin && admin.passwordHash) {
+        user = {
+          id: admin.id,
+          uid: admin.id,
+          fullName: admin.fullName,
+          email: admin.email,
+          phone: admin.phone,
+          mobile: admin.phone,
+          passwordHash: admin.passwordHash,
+          role: admin.role,
+          isActive: admin.isActive
+        } as any;
+        isAdminAuth = true;
+      }
+    }
+
     if (!user || !user.passwordHash) {
       // Record failed attempt
       const fails = (tracker?.failCount || 0) + 1;
@@ -148,7 +168,7 @@ router.post('/login', async (req: Request, res: Response) => {
 
       res.status(401).json({
         success: false,
-        error: 'Invalid credentials or no password configured for this account. Try OTP login.'
+        error: `No account found for "${identifier}". Please enter your 10-digit mobile number or click Register to create an account.`
       });
       return;
     }

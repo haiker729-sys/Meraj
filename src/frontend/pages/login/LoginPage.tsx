@@ -13,6 +13,8 @@ type AuthTab = 'OTP' | 'PASSWORD' | 'REGISTER';
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
   const [activeTab, setActiveTab] = useState<AuthTab>('OTP');
+  const [prefillName, setPrefillName] = useState('');
+  const [prefillMobile, setPrefillMobile] = useState('');
 
   const handleLoginSuccess = (_user: any) => {
     // Navigate to customer account or previous destination
@@ -146,11 +148,25 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
                   <PasswordVerificationView
                     onSuccess={handleLoginSuccess}
                     onSwitchToOtp={() => setActiveTab('OTP')}
+                    onSwitchToRegister={(input) => {
+                      if (input) {
+                        const digits = input.replace(/\D/g, '');
+                        if (digits.length >= 10) {
+                          setPrefillMobile(digits.slice(-10));
+                        } else if (!input.includes('@')) {
+                          setPrefillName(input);
+                        }
+                      }
+                      setActiveTab('REGISTER');
+                    }}
                   />
                 )}
 
                 {activeTab === 'REGISTER' && (
                   <RegisterView
+                    key={`${prefillName}-${prefillMobile}`}
+                    initialFullName={prefillName}
+                    initialMobile={prefillMobile}
                     onSuccess={handleLoginSuccess}
                     onSwitchToLogin={() => setActiveTab('PASSWORD')}
                   />

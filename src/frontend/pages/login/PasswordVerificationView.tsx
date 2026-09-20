@@ -7,11 +7,13 @@ import { ForgotPasswordModal } from './ForgotPasswordModal';
 interface PasswordVerificationViewProps {
   onSuccess: (user: any) => void;
   onSwitchToOtp: () => void;
+  onSwitchToRegister?: (initialName?: string) => void;
 }
 
 export const PasswordVerificationView: React.FC<PasswordVerificationViewProps> = ({
   onSuccess,
-  onSwitchToOtp
+  onSwitchToOtp,
+  onSwitchToRegister
 }) => {
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -90,7 +92,7 @@ export const PasswordVerificationView: React.FC<PasswordVerificationViewProps> =
           {/* Identifier field */}
           <div className="space-y-1.5">
             <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-300">
-              Mobile Number or Email
+              Mobile Number, Email, or Admin ID
             </label>
             <div className="relative flex items-center">
               <div className="absolute left-3.5 text-neutral-400">
@@ -101,11 +103,17 @@ export const PasswordVerificationView: React.FC<PasswordVerificationViewProps> =
                 required
                 disabled={isVerifying}
                 value={identifier}
-                onChange={(e) => setIdentifier(e.target.value)}
-                placeholder="10-digit mobile or email address"
+                onChange={(e) => {
+                  setIdentifier(e.target.value);
+                  if (errorMsg) setErrorMsg(null);
+                }}
+                placeholder="e.g. 9876543210 or name@example.com"
                 className="w-full pl-10 pr-4 py-3 text-sm bg-white/[0.05] hover:bg-white/[0.08] focus:bg-white/[0.1] border border-white/15 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 rounded-xl text-white placeholder:text-neutral-500 focus:outline-hidden transition-all shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]"
               />
             </div>
+            <p className="text-[11px] text-neutral-400 pl-1">
+              अपना 10-अंकों का मोबाइल नंबर या ईमेल दर्ज करें (Enter 10-digit mobile or email)
+            </p>
           </div>
 
           {/* Password field with Show/Hide toggle */}
@@ -131,7 +139,10 @@ export const PasswordVerificationView: React.FC<PasswordVerificationViewProps> =
                 required
                 disabled={isVerifying}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  if (errorMsg) setErrorMsg(null);
+                }}
                 placeholder="••••••••"
                 className="w-full pl-10 pr-12 py-3 text-sm bg-white/[0.05] hover:bg-white/[0.08] focus:bg-white/[0.1] border border-white/15 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 rounded-xl text-white placeholder:text-neutral-500 focus:outline-hidden transition-all shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]"
               />
@@ -147,11 +158,34 @@ export const PasswordVerificationView: React.FC<PasswordVerificationViewProps> =
             </div>
           </div>
 
-          {/* Error message */}
+          {/* Error message with Action Buttons */}
           {errorMsg && (
-            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2 animate-in fade-in">
-              <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
-              <span className="leading-relaxed">{errorMsg}</span>
+            <div className="p-3.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs space-y-2.5 animate-in fade-in">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-400 mt-0.5" />
+                <span className="leading-relaxed font-medium">{errorMsg}</span>
+              </div>
+              
+              {/* Contextual Action Buttons */}
+              <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-rose-500/20">
+                {onSwitchToRegister && (
+                  <button
+                    type="button"
+                    onClick={() => onSwitchToRegister(identifier.trim())}
+                    className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white font-semibold text-[11px] transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <span>✨ Create New Account</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={onSwitchToOtp}
+                  className="px-3 py-1.5 rounded-lg bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 font-semibold text-[11px] transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <KeyRound className="w-3.5 h-3.5" />
+                  <span>Login with OTP</span>
+                </button>
+              </div>
             </div>
           )}
 

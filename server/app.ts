@@ -25,33 +25,56 @@ app.use((_req, res, next) => {
   next();
 });
 
-// Health check
-app.get('/api/health', (_req, res) => {
+// Health checks (available at multiple aliases for Vercel / proxy compatibility)
+const healthHandler = (_req: express.Request, res: express.Response) => {
   res.json({
     status: 'ok',
     store: 'Fashion Point / Meraj',
     version: '2.0.0-production',
     timestamp: new Date().toISOString()
   });
+};
+
+app.get('/api/health', healthHandler);
+app.get('/health', healthHandler);
+app.get('/api', healthHandler);
+
+// Mount API Routers (supports both /api/* and /* paths for zero-config Vercel rewrites)
+const apiRoutes = [
+  ['/auth', authRouter],
+  ['/admin/auth', adminAuthRouter],
+  ['/products', productsRouter],
+  ['/orders', ordersRouter],
+  ['/payments', paymentsRouter],
+  ['/coupons', couponsRouter],
+  ['/admin', adminRouter],
+  ['/customer', customerRouter],
+  ['/postal', postalRouter]
+] as const;
+
+apiRoutes.forEach(([routePath, router]) => {
+  app.use(`/api${routePath}`, router);
+  app.use(routePath, router);
 });
 
-// Mount API Routers
-app.use('/api/auth', authRouter);
-app.use('/api/admin/auth', adminAuthRouter);
-app.use('/api/products', productsRouter);
-app.use('/api/orders', ordersRouter);
-app.use('/api/payments', paymentsRouter);
-app.use('/api/coupons', couponsRouter);
-app.use('/api/admin', adminRouter);
-app.use('/api/customer', customerRouter);
-app.use('/api/postal', postalRouter);
+// JSON 404 for unhandled API endpoints
+app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (req.path.startsWith('/api') || req.path.startsWith('/auth') || req.path.startsWith('/products') || req.path.startsWith('/orders') || req.headers.accept?.includes('application/json')) {
+    res.status(404).json({
+      success: false,
+      error: `API route not found: ${req.method} ${req.originalUrl || req.url}`
+    });
+    return;
+  }
+  next();
+});
 
 // Global error handler
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error('[Fashion Point Server Error]:', err);
-  res.status(500).json({
+  console.error('[Fashion Point Server Error]:', err?.message || err);
+  res.status(err?.status || 500).json({
     success: false,
-    error: 'An internal server error occurred. Please try again or contact store support.'
+    error: err?.message || 'An internal server error occurred. Please try again or contact store support.'
   });
 });
 

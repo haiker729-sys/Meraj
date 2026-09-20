@@ -726,7 +726,12 @@ export class InMemoryDatabaseManager {
     const cleanDigits = identifier.replace(/\D/g, '').slice(-10);
 
     return this.users.find(
-      (u) => u.email?.toLowerCase() === clean || u.phone === clean || u.phone === cleanDigits
+      (u) =>
+        u.email?.toLowerCase() === clean ||
+        u.phone === clean ||
+        (cleanDigits.length >= 10 && u.phone === cleanDigits) ||
+        u.fullName?.toLowerCase() === clean ||
+        u.uid === identifier.trim()
     ) || null;
   }
 
