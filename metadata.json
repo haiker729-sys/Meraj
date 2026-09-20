@@ -1,0 +1,6 @@
+{
+  "name": "Fashion Point",
+  "description": "A clean, modern, and mobile-first clothing e-commerce website for Fashion Point with full customer store, admin management, printable thermal 4x6 and A4 shipping labels, GST invoices, and order tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
