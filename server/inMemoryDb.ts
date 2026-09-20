@@ -746,6 +746,15 @@ export class InMemoryDatabaseManager {
     return safe;
   }
 
+  public async updateUserPassword(userId: string | number, newPassword: string) {
+    const user = this.users.find((u) => String(u.id) === String(userId) || u.uid === String(userId));
+    if (user) {
+      user.passwordHash = bcrypt.hashSync(newPassword.trim(), 10);
+      return true;
+    }
+    return false;
+  }
+
   // --- ADMINS ---
   public async getAdminByUsername(username: string) {
     const clean = username.trim().toLowerCase();

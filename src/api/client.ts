@@ -85,7 +85,7 @@ export const apiClient = {
         }
       ),
     verifyOtp: async (mobile: string, otp: string, fullName?: string) => {
-      const res = await request<{ success: boolean; token: string; user: any }>('/auth/verify-otp', {
+      const res = await request<{ success: boolean; token: string; user: any; message?: string }>('/auth/verify-otp', {
         method: 'POST',
         body: JSON.stringify({ mobile, otp, fullName })
       });
@@ -93,6 +93,28 @@ export const apiClient = {
         setCustomerToken(res.token);
       }
       return res;
+    },
+    forgotPasswordRequestOtp: (identifier: string) =>
+      request<{ success: boolean; message: string; expiresInSeconds: number; identifier?: string }>(
+        '/auth/forgot-password/request-otp',
+        {
+          method: 'POST',
+          body: JSON.stringify({ identifier })
+        }
+      ),
+    forgotPasswordReset: (payload: { identifier: string; otp: string; newPassword: string }) =>
+      request<{ success: boolean; message: string }>('/auth/forgot-password/reset', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      }),
+    getDevSandboxOtp: async (mobile: string, type: 'otp' | 'forgot' = 'otp') => {
+      try {
+        return await request<{ success: boolean; simulatedCode?: string; message?: string }>(
+          `/auth/dev-sandbox-otp?mobile=${encodeURIComponent(mobile)}&type=${type}`
+        );
+      } catch {
+        return { success: false };
+      }
     },
     getMe: () => request<{ success: boolean; user: any }>('/auth/me'),
     logout: () => {

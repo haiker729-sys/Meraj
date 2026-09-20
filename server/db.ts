@@ -1173,6 +1173,16 @@ class PostgresDatabaseManager {
     return res.rows[0];
   }
 
+  public async updateUserPassword(userId: string | number, newPassword: string) {
+    await this.initDatabase();
+    const passwordHash = bcrypt.hashSync(newPassword.trim(), 10);
+    const res = await this.pool.query(
+      'UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id::text = $2 OR uid = $2',
+      [passwordHash, String(userId)]
+    );
+    return (res.rowCount ?? 0) > 0;
+  }
+
   // --- ADMINS ---
   public async getAdminByUsername(username: string) {
     await this.initDatabase();

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Lock, User, Eye, EyeOff, ArrowRight, ArrowLeft, KeyRound, AlertCircle } from 'lucide-react';
+import { ShieldCheck, Lock, User, Eye, EyeOff, ArrowRight, ArrowLeft, KeyRound, AlertCircle, CheckCircle2 } from 'lucide-react';
+import confetti from 'canvas-confetti';
 import { apiClient } from '../../../api/client';
 import { AdminUser } from '../../../types';
 
@@ -17,31 +18,42 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isVerified, setIsVerified] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
     if (!username.trim() || !password.trim()) {
-      setErrorMsg('कृपया अपना एडमिन यूज़रनेम और पासवर्ड दोनों दर्ज करें। (Please enter both username and password)');
+      setErrorMsg('Please enter both your admin username and password.');
       return;
     }
 
     setIsSubmitting(true);
 
     try {
-      // Direct PostgreSQL backend authentication (No local fallback)
+      // Direct backend authentication with bcrypt verification
       const res = await apiClient.adminAuth.login(username.trim(), password.trim());
       setIsSubmitting(false);
 
       if (res?.success && res.admin) {
-        onLoginSuccess(res.admin);
+        setIsVerified(true);
+        confetti({
+          particleCount: 75,
+          spread: 70,
+          origin: { y: 0.6 },
+          colors: ['#10b981', '#34d399', '#f59e0b', '#ffffff']
+        });
+
+        setTimeout(() => {
+          onLoginSuccess(res.admin);
+        }, 1000);
       } else {
-        setErrorMsg((res as any)?.message || (res as any)?.error || 'अमान्य एडमिन यूज़रनेम या पासवर्ड। (Invalid admin credentials)');
+        setErrorMsg((res as any)?.message || (res as any)?.error || 'Invalid administrator credentials.');
       }
     } catch (err: any) {
       setIsSubmitting(false);
-      setErrorMsg(err.message || 'सर्वर से कनेक्ट करने में असमर्थ। (Failed to connect to authentication server)');
+      setErrorMsg(err.message || 'Failed to connect to authentication server.');
     }
   };
 
@@ -77,17 +89,40 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
           {/* Subtle Top Accent */}
           <div className="absolute top-0 inset-x-0 h-1 bg-gradient-to-r from-amber-400 via-amber-500 to-amber-300" />
 
-          <div className="text-center mb-6">
-            <div className="w-14 h-14 rounded-2xl bg-amber-400/10 border border-amber-400/20 text-amber-400 flex items-center justify-center mx-auto mb-3 shadow-inner">
-              <KeyRound className="w-7 h-7" />
+          {isVerified ? (
+            <div className="py-12 text-center space-y-4 animate-in fade-in zoom-in-95 duration-500">
+              <div className="relative mx-auto w-20 h-20">
+                <div className="absolute inset-0 rounded-full bg-emerald-500/20 blur-xl animate-pulse" />
+                <div className="relative w-20 h-20 rounded-2xl bg-gradient-to-tr from-emerald-600 to-emerald-400 p-[1px] shadow-lg shadow-emerald-500/30">
+                  <div className="w-full h-full rounded-2xl bg-neutral-900/90 backdrop-blur-xl flex items-center justify-center text-emerald-400">
+                    <CheckCircle2 className="w-10 h-10 animate-bounce" />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <h3 className="text-xl font-bold font-serif text-white">Verified Successfully</h3>
+                <p className="text-xs text-emerald-400 font-mono">
+                  Administrator privileges confirmed by backend
+                </p>
+                <p className="text-[11px] text-neutral-400 mt-2">
+                  Opening Store Administration Dashboard...
+                </p>
+              </div>
             </div>
-            <h2 className="text-xl font-black font-serif text-white tracking-tight">
-              Admin Portal Sign In
-            </h2>
-            <p className="text-xs text-neutral-400 mt-1">
-              सुरक्षित एडमिनिस्ट्रेटर लॉगिन • Restricted Store Management Portal
-            </p>
-          </div>
+          ) : (
+            <>
+              <div className="text-center mb-6">
+                <div className="w-14 h-14 rounded-2xl bg-amber-400/10 border border-amber-400/20 text-amber-400 flex items-center justify-center mx-auto mb-3 shadow-inner">
+                  <KeyRound className="w-7 h-7" />
+                </div>
+                <h2 className="text-xl font-black font-serif text-white tracking-tight">
+                  Admin Portal Sign In
+                </h2>
+                <p className="text-xs text-neutral-400 mt-1">
+                  सुरक्षित एडमिनिस्ट्रेटर लॉगिन • Restricted Store Management Portal
+                </p>
+              </div>
 
           {/* Error Message */}
           {errorMsg && (
@@ -182,7 +217,9 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
               </div>
             </div>
           </div>
-        </div>
+        </>
+      )}
+    </div>
       </main>
 
       {/* Footer Notice */}
