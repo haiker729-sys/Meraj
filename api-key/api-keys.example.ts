@@ -8,44 +8,116 @@
  */
 
 export interface ApiKeysConfig {
-  geminiApiKey: string;
   database: {
     url: string;
-    host: string;
-    port: number;
-    user: string;
-    password: string;
-    database: string;
   };
-  auth: {
+  security: {
     jwtSecret: string;
-    adminInitialPassword: string;
+    settingsEncryptionKey: string;
   };
   razorpay: {
     keyId: string;
     keySecret: string;
     webhookSecret: string;
   };
+  sms: {
+    provider: string;
+    apiKey: string;
+    senderId: string;
+    templateId: string;
+  };
+  whatsapp: {
+    provider: string;
+    accessToken: string;
+    phoneNumberId: string;
+    businessAccountId: string;
+  };
+  email: {
+    provider: string;
+    apiKey: string;
+    from: string;
+    smtpHost: string;
+    smtpPort: string;
+    smtpUsername: string;
+    smtpPassword: string;
+  };
+  storage: {
+    provider: string;
+    accessKey: string;
+    secretKey: string;
+    bucket: string;
+    region: string;
+  };
+  maps: {
+    googleMapsApiKey: string;
+  };
+  ai: {
+    geminiApiKey: string;
+  };
+  courier: {
+    provider: string;
+    apiKey: string;
+    username: string;
+    password: string;
+    clientId: string;
+    clientSecret: string;
+  };
 }
 
 export const API_KEYS_EXAMPLE: ApiKeysConfig = {
-  geminiApiKey: '',
   database: {
     url: '',
-    host: '',
-    port: 5432,
-    user: '',
-    password: '',
-    database: '',
   },
-  auth: {
+  security: {
     jwtSecret: '',
-    adminInitialPassword: '',
+    settingsEncryptionKey: '',
   },
   razorpay: {
     keyId: '',
     keySecret: '',
     webhookSecret: '',
+  },
+  sms: {
+    provider: '',
+    apiKey: '',
+    senderId: '',
+    templateId: '',
+  },
+  whatsapp: {
+    provider: '',
+    accessToken: '',
+    phoneNumberId: '',
+    businessAccountId: '',
+  },
+  email: {
+    provider: '',
+    apiKey: '',
+    from: '',
+    smtpHost: '',
+    smtpPort: '',
+    smtpUsername: '',
+    smtpPassword: '',
+  },
+  storage: {
+    provider: '',
+    accessKey: '',
+    secretKey: '',
+    bucket: '',
+    region: '',
+  },
+  maps: {
+    googleMapsApiKey: '',
+  },
+  ai: {
+    geminiApiKey: '',
+  },
+  courier: {
+    provider: '',
+    apiKey: '',
+    username: '',
+    password: '',
+    clientId: '',
+    clientSecret: '',
   },
 };
 

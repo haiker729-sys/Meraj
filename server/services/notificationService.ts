@@ -8,9 +8,9 @@ export interface NotificationResult {
 }
 
 class BackendNotificationService {
-  private smsKey = process.env.SMS_PROVIDER_KEY;
-  private whatsappKey = process.env.WHATSAPP_PROVIDER_KEY;
-  private emailKey = process.env.EMAIL_PROVIDER_KEY;
+  private smsKey = process.env.SMS_API_KEY || process.env.SMS_PROVIDER_KEY;
+  private whatsappKey = process.env.WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_PROVIDER_KEY;
+  private emailKey = process.env.EMAIL_API_KEY || process.env.EMAIL_PROVIDER_KEY;
 
   public async dispatchOrderNotification(order: any, event: string): Promise<NotificationResult[]> {
     const results: NotificationResult[] = [];
@@ -24,7 +24,7 @@ class BackendNotificationService {
           channel: 'SMS',
           recipient: customer.mobileNumber,
           status: 'UNCONFIGURED',
-          message: 'Notification provider not configured. Set SMS_PROVIDER_KEY in .env.'
+          message: 'Not configured: SMS provider credentials (SMS_API_KEY) are not set.'
         });
       } else {
         // Here real SMS API (e.g. Fast2SMS / Twilio) is invoked
@@ -55,7 +55,7 @@ class BackendNotificationService {
           channel: 'WHATSAPP',
           recipient: customer.mobileNumber,
           status: 'UNCONFIGURED',
-          message: 'Notification provider not configured. Set WHATSAPP_PROVIDER_KEY in .env.'
+          message: 'Not configured: WhatsApp credentials (WHATSAPP_ACCESS_TOKEN) are not set.'
         });
       } else {
         results.push({
@@ -75,7 +75,7 @@ class BackendNotificationService {
           channel: 'EMAIL',
           recipient: customer.email,
           status: 'UNCONFIGURED',
-          message: 'Notification provider not configured. Set EMAIL_PROVIDER_KEY in .env.'
+          message: 'Not configured: Email credentials (EMAIL_API_KEY / SMTP) are not set.'
         });
       } else {
         results.push({

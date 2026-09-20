@@ -78,7 +78,7 @@ class NotificationService {
         channel,
         recipient: channel === 'EMAIL' ? (order.customer.email || 'N/A') : order.customer.mobileNumber,
         title,
-        message: 'Notification provider not configured. Set provider API keys in environment variables to enable live delivery.',
+        message: 'Not configured: Notification provider credentials are not set in environment variables.',
         timestamp: new Date().toISOString(),
         status: 'UNCONFIGURED'
       };
