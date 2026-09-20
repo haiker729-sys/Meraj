@@ -6,3 +6,5 @@ coverage/
 *.log
 .env*
 !.env.example
+api-key/api-keys.ts
+!api-key/api-keys.example.ts
