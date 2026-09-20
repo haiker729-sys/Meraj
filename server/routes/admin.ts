@@ -1,12 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db';
-import { requireAdmin } from '../middleware/auth';
+import { requireAdmin, requireStaffOrAdmin } from '../middleware/auth';
 import { getServiceStatusSummary } from '../../api-key/api-keys';
+import { parcelJourneyService, JourneyStage } from '../services/parcelJourneyService';
 
 const router = Router();
 
-// All routes here require admin authorization
-router.use(requireAdmin);
+// Staff or Admin authorization for dashboard and logistics scanning
+router.use(requireStaffOrAdmin);
 
 /**
  * External Integrations Status (Architecture for Low-Cost Launch v1)
@@ -231,28 +232,57 @@ router.post('/orders/:id/tracking', async (req: Request, res: Response) => {
 });
 
 /**
- * Admin: Lookup Order via QR Code Token
+ * Admin / Staff: Lookup Order via QR Code Token or Barcode AWB
  * GET /api/admin/tracking/scan/:token
  */
 router.get('/tracking/scan/:token', async (req: Request, res: Response) => {
   try {
     const { token } = req.params;
-    const order = await db.getOrderByTrackingToken(token);
+    const order = await parcelJourneyService.findOrder(token);
 
     if (!order) {
       res.status(404).json({
         success: false,
-        error: 'No parcel found matching this QR code tracking token.'
+        error: `No parcel found matching QR / Barcode "${token}".`
       });
       return;
     }
 
     const trackingEvents = await db.getOrderTrackingEvents(order.id);
+    const currentStatus = (order.orderStatus || order.status || 'ORDER_PLACED').toUpperCase();
+
+    // Determine recommended journey stage
+    let recommendedStage: JourneyStage = 'ADMIN_SCAN';
+    let allowedStages: JourneyStage[] = [];
+
+    if (['ORDER_PLACED', 'NEW', 'PAYMENT_PENDING', 'PAYMENT_CONFIRMED'].includes(currentStatus)) {
+      recommendedStage = 'ADMIN_SCAN';
+      allowedStages = ['ADMIN_SCAN'];
+    } else if (currentStatus === 'CONFIRMED') {
+      recommendedStage = 'WAREHOUSE_SCAN';
+      allowedStages = ['WAREHOUSE_SCAN'];
+    } else if (currentStatus === 'PACKED') {
+      recommendedStage = 'WAREHOUSE_SCAN'; // dispatch
+      allowedStages = ['WAREHOUSE_SCAN', 'HUB_SCAN'];
+    } else if (['DISPATCHED', 'IN_TRANSIT', 'ARRIVED_AT_HUB', 'DEPARTED_FROM_HUB'].includes(currentStatus)) {
+      recommendedStage = 'HUB_SCAN';
+      allowedStages = ['HUB_SCAN', 'NEXT_HUB_SCAN', 'OUT_FOR_DELIVERY'];
+    } else if (currentStatus === 'OUT_FOR_DELIVERY') {
+      recommendedStage = 'DELIVERY';
+      allowedStages = ['DELIVERY'];
+    } else if (currentStatus === 'DELIVERED') {
+      allowedStages = [];
+    }
 
     res.json({
       success: true,
       order,
-      trackingEvents
+      trackingEvents,
+      currentStatus,
+      recommendedStage,
+      allowedStages,
+      isDelivered: currentStatus === 'DELIVERED',
+      isCancelled: currentStatus === 'CANCELLED'
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message || 'Server error.' });
@@ -260,12 +290,74 @@ router.get('/tracking/scan/:token', async (req: Request, res: Response) => {
 });
 
 /**
- * Admin: Submit QR Scanner Tracking Event
+ * Single QR/Barcode Parcel Journey Scanner Endpoint
+ * POST /api/admin/tracking/journey-scan
+ */
+router.post('/tracking/journey-scan', async (req: Request, res: Response) => {
+  try {
+    const {
+      scanInput,
+      stage,
+      location,
+      hubName,
+      targetStatus,
+      notes,
+      recipientName,
+      confirmationCode
+    } = req.body;
+    const authUser = (req as any).user;
+
+    if (!scanInput || !scanInput.trim()) {
+      res.status(400).json({ success: false, error: 'Scan input (QR URL or Barcode) is required.' });
+      return;
+    }
+
+    if (!stage) {
+      res.status(400).json({ success: false, error: 'Journey stage is required.' });
+      return;
+    }
+
+    const result = await parcelJourneyService.processJourneyScan({
+      scanInput: scanInput.trim(),
+      stage: stage as JourneyStage,
+      user: {
+        id: authUser?.id || 'STAFF',
+        username: authUser?.username,
+        fullName: authUser?.fullName || authUser?.username || 'Authorized Staff',
+        role: authUser?.role || 'STAFF'
+      },
+      location,
+      hubName,
+      targetStatus,
+      notes,
+      recipientName,
+      confirmationCode
+    });
+
+    const refreshedEvents = result.order ? await db.getOrderTrackingEvents(result.order.id) : [];
+
+    res.json({
+      success: true,
+      message: result.message,
+      order: result.order,
+      event: result.event,
+      trackingEvents: refreshedEvents
+    });
+  } catch (err: any) {
+    res.status(400).json({
+      success: false,
+      error: err.message || 'Journey scan processing failed.'
+    });
+  }
+});
+
+/**
+ * Admin: Submit QR Scanner Tracking Event (Legacy compatibility)
  * POST /api/admin/tracking/scan
  */
 router.post('/tracking/scan', async (req: Request, res: Response) => {
   try {
-    const { token, status, location, description, courierName, awbNumber } = req.body;
+    const { token, stage, status, location, description, courierName, awbNumber, recipientName, hubName } = req.body;
     const adminUser = (req as any).user;
 
     if (!token) {
@@ -273,7 +365,36 @@ router.post('/tracking/scan', async (req: Request, res: Response) => {
       return;
     }
 
-    const order = await db.getOrderByTrackingToken(token);
+    // If a journey stage is supplied, use the dedicated parcelJourneyService
+    if (stage) {
+      const result = await parcelJourneyService.processJourneyScan({
+        scanInput: token,
+        stage: stage as JourneyStage,
+        user: {
+          id: adminUser?.id || 'STAFF',
+          username: adminUser?.username,
+          fullName: adminUser?.fullName || adminUser?.username || 'Staff Scanner',
+          role: adminUser?.role || 'STAFF'
+        },
+        location,
+        hubName,
+        targetStatus: status,
+        notes: description,
+        recipientName
+      });
+
+      const trackingEvents = result.order ? await db.getOrderTrackingEvents(result.order.id) : [];
+      res.json({
+        success: true,
+        message: result.message,
+        order: result.order,
+        event: result.event,
+        trackingEvents
+      });
+      return;
+    }
+
+    const order = await parcelJourneyService.findOrder(token);
     if (!order) {
       res.status(404).json({ success: false, error: 'No parcel found matching this QR token.' });
       return;
@@ -328,7 +449,7 @@ router.post('/tracking/scan', async (req: Request, res: Response) => {
       trackingEvents
     });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message || 'Scan update failed.' });
+    res.status(400).json({ success: false, error: err.message || 'Scan update failed.' });
   }
 });
 

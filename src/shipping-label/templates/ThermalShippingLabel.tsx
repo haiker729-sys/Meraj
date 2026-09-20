@@ -16,6 +16,7 @@ export const ThermalShippingLabel: React.FC<LabelProps> = ({ order, format = '4x
 
   const isCOD = order.paymentMethod === 'COD';
   const totalQuantity = order.items.reduce((sum, item) => sum + item.quantity, 0);
+  const permanentTrackingId = order.trackingNumber || `DEL-${order.id}`;
 
   return (
     <div
@@ -39,7 +40,7 @@ export const ThermalShippingLabel: React.FC<LabelProps> = ({ order, format = '4x
             </span>
             <span className="font-black text-base tracking-tight uppercase">FASHION POINT</span>
           </div>
-          <p className="text-[9px] text-neutral-700 font-medium">Clothing & Lifestyle Store • Express Dispatch</p>
+          <p className="text-[9px] text-neutral-700 font-medium">Clothing & Lifestyle Store • Express Logistics</p>
         </div>
         <div className="text-right">
           <span className="inline-block border-2 border-black px-2 py-0.5 text-xs font-black uppercase">
@@ -49,10 +50,14 @@ export const ThermalShippingLabel: React.FC<LabelProps> = ({ order, format = '4x
         </div>
       </div>
 
-      {/* Primary Barcode for Courier Scanning */}
-      <div className="border-b-2 border-black pb-2 mb-2 text-center">
-        <p className="text-[9px] uppercase font-bold tracking-widest text-neutral-600 mb-0.5">Shipment AWB / Order Reference</p>
-        <BarcodeGenerator value={order.id} height={42} showText={true} />
+      {/* Primary Barcode for Journey Scanning */}
+      <div className="border-b-2 border-black pb-2 mb-2 text-center bg-neutral-50 p-1.5">
+        <div className="flex items-center justify-between text-[8px] font-mono font-bold uppercase tracking-wider text-neutral-700 mb-0.5 px-1">
+          <span>PERMANENT TRACKING ID</span>
+          <span className="bg-black text-white px-1 py-0.2 text-[7px] font-bold">SINGLE JOURNEY ID</span>
+        </div>
+        <BarcodeGenerator value={permanentTrackingId} height={40} showText={true} />
+        <p className="text-[8px] text-neutral-600 font-mono mt-0.5">Order Ref: {order.id}</p>
       </div>
 
       {/* Routing & Payment Classification Banner */}
@@ -136,7 +141,7 @@ export const ThermalShippingLabel: React.FC<LabelProps> = ({ order, format = '4x
       </div>
 
       {/* Bottom Section: QR Code & Return Hub */}
-      <div className="flex items-center justify-between pt-1">
+      <div className="flex items-center justify-between pt-1 border-t border-neutral-300">
         <div className="flex-1 pr-2">
           <p className="text-[8px] font-black uppercase text-neutral-500">Return If Undelivered To:</p>
           <p className="text-[9px] font-bold">FASHION POINT CENTRAL HUB</p>
@@ -145,10 +150,14 @@ export const ThermalShippingLabel: React.FC<LabelProps> = ({ order, format = '4x
             Indore, Madhya Pradesh - 452001
           </p>
           <p className="text-[8px] text-neutral-700 font-mono">Helpline: +91 98765 43210</p>
+          <p className="text-[7px] text-neutral-500 font-mono mt-0.5 uppercase tracking-tight">
+            Single QR & Barcode used across all checkpoints
+          </p>
         </div>
 
-        <div className="flex flex-col items-center">
-          <QRCodeGenerator value={trackingUrl} size={64} caption="SCAN TO TRACK" />
+        <div className="flex flex-col items-center text-center">
+          <QRCodeGenerator value={trackingUrl} size={64} caption="JOURNEY QR" />
+          <span className="text-[7px] font-mono text-neutral-600 mt-0.5">TRACK / AUDIT</span>
         </div>
       </div>
     </div>

@@ -270,3 +270,40 @@ CREATE TABLE IF NOT EXISTS store_settings (
     value JSONB NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 16. Permanent Order Tracking Events (Immutable Logistics Journey)
+CREATE TABLE IF NOT EXISTS order_tracking_events (
+    id VARCHAR(64) PRIMARY KEY,
+    order_id VARCHAR(64) REFERENCES orders(id) ON DELETE CASCADE,
+    tracking_number VARCHAR(100),
+    status VARCHAR(50) NOT NULL,
+    stage VARCHAR(50),
+    location VARCHAR(150),
+    hub_name VARCHAR(150),
+    description TEXT NOT NULL,
+    source VARCHAR(50) DEFAULT 'ADMIN',
+    scanned_by VARCHAR(100) DEFAULT 'STAFF',
+    recipient_name VARCHAR(150),
+    confirmation_note TEXT,
+    metadata JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_tracking_events_order ON order_tracking_events(order_id);
+CREATE INDEX IF NOT EXISTS idx_tracking_events_tracking_num ON order_tracking_events(tracking_number);
+CREATE INDEX IF NOT EXISTS idx_tracking_events_created ON order_tracking_events(created_at);
+
+-- 17. Single QR / Barcode Scan Audit Log
+CREATE TABLE IF NOT EXISTS qr_scan_events (
+    id VARCHAR(64) PRIMARY KEY,
+    order_id VARCHAR(64) REFERENCES orders(id) ON DELETE CASCADE,
+    tracking_number VARCHAR(100),
+    scanned_by VARCHAR(100),
+    scanner_type VARCHAR(50) NOT NULL, -- CUSTOMER, ADMIN, STAFF, WAREHOUSE, DELIVERY
+    location VARCHAR(150),
+    action_taken VARCHAR(100),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_qr_scans_order ON qr_scan_events(order_id);
+CREATE INDEX IF NOT EXISTS idx_qr_scans_type ON qr_scan_events(scanner_type);

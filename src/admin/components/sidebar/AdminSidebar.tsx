@@ -11,7 +11,8 @@ import {
   Store,
   Printer,
   ShieldCheck,
-  LogOut
+  LogOut,
+  QrCode
 } from 'lucide-react';
 import { AdminUser } from '../../../types';
 
@@ -21,6 +22,7 @@ export type AdminTab =
   | 'ORDERS'
   | 'INVENTORY'
   | 'SHIPPING'
+  | 'PARCEL_JOURNEY'
   | 'INVOICES'
   | 'CUSTOMERS'
   | 'ADMINS'
@@ -51,6 +53,7 @@ export const AdminSidebar: React.FC<AdminSidebarProps> = ({
     { id: 'PRODUCTS', label: 'Product Catalog', icon: ShoppingBag },
     { id: 'INVENTORY', label: 'Inventory & Stock', icon: Layers, badge: lowStockCount },
     { id: 'SHIPPING', label: 'Shipping & Labels', icon: Truck },
+    { id: 'PARCEL_JOURNEY', label: 'Parcel Journey (QR/AWB)', icon: QrCode },
     { id: 'INVOICES', label: 'GST Tax Invoices', icon: FileText },
     { id: 'CUSTOMERS', label: 'Customer Directory', icon: Users },
     { id: 'ADMINS', label: 'Admin Team & Roles', icon: ShieldCheck },

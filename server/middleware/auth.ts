@@ -38,10 +38,34 @@ export function authenticateToken(req: AuthenticatedRequest, res: Response, next
   }
 }
 
+export const ALLOWED_STAFF_ROLES = [
+  'SUPER_ADMIN',
+  'STORE_MANAGER',
+  'ADMIN',
+  'INVENTORY_MANAGER',
+  'WAREHOUSE_STAFF',
+  'HUB_OPERATOR',
+  'DELIVERY_BOY',
+  'STAFF'
+];
+
 export function requireAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
   authenticateToken(req, res, () => {
     if (!req.user || !['SUPER_ADMIN', 'STORE_MANAGER', 'ADMIN'].includes(req.user.role)) {
       res.status(403).json({ success: false, error: 'Access denied: Admin privileges required.' });
+      return;
+    }
+    next();
+  });
+}
+
+export function requireStaffOrAdmin(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
+  authenticateToken(req, res, () => {
+    if (!req.user || !ALLOWED_STAFF_ROLES.includes(req.user.role)) {
+      res.status(403).json({
+        success: false,
+        error: 'Access denied: Authorized Admin, Warehouse, Hub, or Delivery Staff credentials required.'
+      });
       return;
     }
     next();

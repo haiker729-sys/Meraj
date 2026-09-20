@@ -191,15 +191,27 @@ export interface PostalCodeLookup {
   postOffices: string[];
 }
 
+export type JourneyStage =
+  | 'ADMIN_SCAN'
+  | 'WAREHOUSE_SCAN'
+  | 'HUB_SCAN'
+  | 'NEXT_HUB_SCAN'
+  | 'OUT_FOR_DELIVERY'
+  | 'DELIVERY';
+
 export interface OrderTrackingEvent {
   id: string;
   orderId: string;
   trackingNumber: string;
   status: string;
+  stage?: JourneyStage | string;
   location?: string;
+  hubName?: string;
   description: string;
   source: string;
   scannedBy?: string;
+  recipientName?: string;
+  confirmationNote?: string;
   createdAt: string;
 }
 
@@ -236,7 +248,14 @@ export interface StoreReview {
   verifiedPurchase: boolean;
 }
 
-export type AdminRole = 'SUPER_ADMIN' | 'STORE_MANAGER' | 'INVENTORY_MANAGER';
+export type AdminRole =
+  | 'SUPER_ADMIN'
+  | 'STORE_MANAGER'
+  | 'INVENTORY_MANAGER'
+  | 'WAREHOUSE_STAFF'
+  | 'HUB_OPERATOR'
+  | 'DELIVERY_BOY'
+  | 'STAFF';
 
 export interface AdminUser {
   id: string;

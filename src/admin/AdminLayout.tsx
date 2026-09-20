@@ -6,6 +6,7 @@ import { AdminProductsList } from './pages/products/AdminProductsList';
 import { AdminOrdersList } from './pages/orders/AdminOrdersList';
 import { AdminInventoryPage } from './pages/inventory/AdminInventoryPage';
 import { AdminShippingPage } from './pages/shipping/AdminShippingPage';
+import { AdminParcelJourneyPage } from './pages/shipping/AdminParcelJourneyPage';
 import { AdminInvoicesPage } from './pages/invoices/AdminInvoicesPage';
 import { AdminCustomersPage } from './pages/customers/AdminCustomersPage';
 import { AdminSettingsPage } from './pages/settings/AdminSettingsPage';
@@ -75,6 +76,11 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ onExitAdmin, onLogout,
           title: 'Printable Shipping Labels (4x6 & A4)',
           subtitle: 'Thermal barcode labels formatted with recipient addresses and COD amounts'
         };
+      case 'PARCEL_JOURNEY':
+        return {
+          title: 'Single QR & Barcode Parcel Journey Tracker',
+          subtitle: 'One permanent Tracking ID verified across Admin, Warehouse, Hubs, and Doorstep Delivery'
+        };
       case 'INVOICES':
         return {
           title: 'GST Tax Invoices & Compliance',
@@ -135,6 +141,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ onExitAdmin, onLogout,
           {activeTab === 'ORDERS' && <AdminOrdersList />}
           {activeTab === 'INVENTORY' && <AdminInventoryPage />}
           {activeTab === 'SHIPPING' && <AdminShippingPage />}
+          {activeTab === 'PARCEL_JOURNEY' && <AdminParcelJourneyPage />}
           {activeTab === 'INVOICES' && <AdminInvoicesPage />}
           {activeTab === 'CUSTOMERS' && <AdminCustomersPage />}
           {activeTab === 'ADMINS' && <AdminManagementPage currentAdmin={currentAdmin} />}

@@ -9,6 +9,7 @@ export const AdminShippingPage: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrderForLabel, setSelectedOrderForLabel] = useState<Order | null>(null);
+  const [selectedOrderForScan, setSelectedOrderForScan] = useState<string | undefined>(undefined);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
 
   const fetchShippingOrders = async () => {
@@ -141,14 +142,27 @@ export const AdminShippingPage: React.FC = () => {
                     </span>
                   </td>
                   <td className="p-3.5 text-right">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedOrderForLabel(order)}
-                      className="px-3.5 py-1.5 bg-black hover:bg-neutral-800 text-white font-bold rounded-lg text-xs inline-flex items-center gap-1.5 shadow-2xs transition-all active:scale-95"
-                    >
-                      <Printer className="w-3.5 h-3.5 text-amber-300" />
-                      <span>Print Label</span>
-                    </button>
+                    <div className="flex items-center justify-end gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedOrderForScan(order.id);
+                          setIsScannerOpen(true);
+                        }}
+                        className="px-3 py-1.5 bg-neutral-900 hover:bg-black text-amber-300 font-bold rounded-lg text-xs inline-flex items-center gap-1 shadow-2xs transition-all active:scale-95"
+                      >
+                        <QrCode className="w-3.5 h-3.5" />
+                        <span>Journey Scan</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedOrderForLabel(order)}
+                        className="px-3 py-1.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-800 font-bold rounded-lg text-xs inline-flex items-center gap-1 border border-neutral-300 transition-all active:scale-95"
+                      >
+                        <Printer className="w-3.5 h-3.5" />
+                        <span>Print</span>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -167,7 +181,11 @@ export const AdminShippingPage: React.FC = () => {
       {/* Admin QR Scanner Modal */}
       <AdminTrackingScannerModal
         isOpen={isScannerOpen}
-        onClose={() => setIsScannerOpen(false)}
+        onClose={() => {
+          setIsScannerOpen(false);
+          setSelectedOrderForScan(undefined);
+        }}
+        initialOrderId={selectedOrderForScan}
         onOrderUpdated={fetchShippingOrders}
       />
     </div>

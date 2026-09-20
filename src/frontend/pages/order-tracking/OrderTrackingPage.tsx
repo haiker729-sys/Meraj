@@ -392,12 +392,25 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({
 
                           <p className="text-xs text-neutral-700 mt-1">{event.description}</p>
 
-                          {event.location && (
-                            <p className="text-[11px] text-neutral-500 flex items-center gap-1 mt-2">
-                              <MapPin className="w-3.5 h-3.5 text-neutral-400" />
-                              <span>Recorded at: <strong>{event.location}</strong></span>
-                            </p>
-                          )}
+                          <div className="flex items-center gap-3 mt-2 flex-wrap text-[11px] text-neutral-500 font-mono">
+                            {event.location && (
+                              <span className="flex items-center gap-1">
+                                <MapPin className="w-3.5 h-3.5 text-neutral-400" />
+                                <span>Location: <strong>{event.location}</strong></span>
+                              </span>
+                            )}
+                            {event.hubName && (
+                              <span className="flex items-center gap-1 text-neutral-700">
+                                <span>Hub Checkpoint: <strong>{event.hubName}</strong></span>
+                              </span>
+                            )}
+                            {event.recipientName && (
+                              <span className="flex items-center gap-1 text-emerald-800 font-semibold">
+                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                <span>Handed over to: <strong>{event.recipientName}</strong></span>
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );

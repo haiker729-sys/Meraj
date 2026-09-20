@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import { pool } from '../src/db/index';
 import { INITIAL_PRODUCTS, INITIAL_COUPONS, INITIAL_BANNERS, STORE_CONFIG } from '../src/database/seed/productsData';
+import { inMemoryDb } from './inMemoryDb';
 
 export interface DbStats {
   totalSales: number;
@@ -94,13 +95,23 @@ function mapOrderRow(r: any) {
 class PostgresDatabaseManager {
   private pool: Pool;
   private isInitialized = false;
+  private isPostgresAvailable = false;
   private initPromise: Promise<void> | null = null;
 
   constructor() {
     this.pool = pool;
     this.initDatabase().catch((err) => {
-      console.error('Database initialization error:', err);
+      console.warn('Database connection check:', err?.message || err);
     });
+  }
+
+  public isPostgresConnected(): boolean {
+    return this.isPostgresAvailable;
+  }
+
+  public async ensureInitialized(): Promise<boolean> {
+    await this.initDatabase();
+    return this.isPostgresAvailable;
   }
 
   /**
@@ -112,6 +123,14 @@ class PostgresDatabaseManager {
 
     this.initPromise = (async () => {
       try {
+        // Quick connection check to verify if PostgreSQL is actually available
+        await Promise.race([
+          this.pool.query('SELECT 1'),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('PostgreSQL connection timeout')), 1500))
+        ]);
+        this.isPostgresAvailable = true;
+        console.log('[Fashion Point] PostgreSQL is connected.');
+
         // 1. Verify categories
         const catCheck = await this.pool.query('SELECT count(*)::int as count FROM categories');
         if (catCheck.rows[0].count === 0) {
@@ -274,10 +293,46 @@ class PostgresDatabaseManager {
         );
       }
 
+      // 7. Ensure Order Tracking Events and QR Scan tables exist
+      await this.pool.query(`
+        CREATE TABLE IF NOT EXISTS order_tracking_events (
+          id VARCHAR(64) PRIMARY KEY,
+          order_id VARCHAR(64) REFERENCES orders(id) ON DELETE CASCADE,
+          tracking_number VARCHAR(100),
+          status VARCHAR(50) NOT NULL,
+          stage VARCHAR(50),
+          location VARCHAR(150),
+          hub_name VARCHAR(150),
+          description TEXT NOT NULL,
+          source VARCHAR(50) DEFAULT 'ADMIN',
+          scanned_by VARCHAR(100) DEFAULT 'STAFF',
+          recipient_name VARCHAR(150),
+          confirmation_note TEXT,
+          metadata JSONB,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_tracking_events_order ON order_tracking_events(order_id);
+        CREATE INDEX IF NOT EXISTS idx_tracking_events_created ON order_tracking_events(created_at);
+
+        CREATE TABLE IF NOT EXISTS qr_scan_events (
+          id VARCHAR(64) PRIMARY KEY,
+          order_id VARCHAR(64) REFERENCES orders(id) ON DELETE CASCADE,
+          tracking_number VARCHAR(100),
+          scanned_by VARCHAR(100),
+          scanner_type VARCHAR(50) NOT NULL,
+          location VARCHAR(150),
+          action_taken VARCHAR(100),
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX IF NOT EXISTS idx_qr_scans_order ON qr_scan_events(order_id);
+      `);
+
       this.isInitialized = true;
-      console.log('PostgreSQL database verified and ready.');
-    } catch (err) {
-      console.error('Failed to initialize PostgreSQL tables/seed:', err);
+      console.log('[Fashion Point] PostgreSQL database verified and ready.');
+    } catch (err: any) {
+      this.isPostgresAvailable = false;
+      this.isInitialized = true;
+      console.warn('[Fashion Point] PostgreSQL offline (' + err?.message + ') — using in-memory store.');
     } finally {
       this.initPromise = null;
     }
@@ -1557,7 +1612,9 @@ class PostgresDatabaseManager {
     await this.initDatabase();
     const res = await this.pool.query(
       `SELECT id, order_id as "orderId", tracking_number as "trackingNumber",
-              status, location, description, source, scanned_by as "scannedBy",
+              status, stage, location, hub_name as "hubName", description, source,
+              scanned_by as "scannedBy", recipient_name as "recipientName",
+              confirmation_note as "confirmationNote",
               created_at as "createdAt"
        FROM order_tracking_events
        WHERE order_id = $1
@@ -1570,10 +1627,14 @@ class PostgresDatabaseManager {
   public async addOrderTrackingEvent(payload: {
     orderId: string;
     status: string;
+    stage?: string;
     location?: string;
+    hubName?: string;
     description: string;
-    source?: 'ADMIN' | 'COURIER' | 'WAREHOUSE' | 'SYSTEM';
+    source?: 'ADMIN' | 'COURIER' | 'WAREHOUSE' | 'HUB' | 'DELIVERY' | 'SYSTEM';
     scannedBy?: string;
+    recipientName?: string;
+    confirmationNote?: string;
     courierName?: string;
     awbNumber?: string;
   }) {
@@ -1588,26 +1649,34 @@ class PostgresDatabaseManager {
     // Insert into order_tracking_events
     await this.pool.query(
       `INSERT INTO order_tracking_events (
-        id, order_id, tracking_number, status, location, description, source, scanned_by, created_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+        id, order_id, tracking_number, status, stage, location, hub_name,
+        description, source, scanned_by, recipient_name, confirmation_note, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())`,
       [
         eventId,
         order.id,
         trackingNum,
         upperStatus,
+        payload.stage || null,
         payload.location || null,
+        payload.hubName || null,
         payload.description,
         payload.source || 'ADMIN',
-        payload.scannedBy || 'STAFF'
+        payload.scannedBy || 'STAFF',
+        payload.recipientName || null,
+        payload.confirmationNote || null
       ]
     );
 
     // Update order status, location, courier, timeline
     const newTimelineItem = {
       status: upperStatus,
+      stage: payload.stage,
       title: upperStatus.replace(/_/g, ' '),
       description: payload.description,
       location: payload.location,
+      hubName: payload.hubName,
+      recipientName: payload.recipientName,
       timestamp: new Date().toISOString()
     };
 
@@ -1652,10 +1721,14 @@ class PostgresDatabaseManager {
         orderId: order.id,
         trackingNumber: trackingNum,
         status: upperStatus,
+        stage: payload.stage,
         location: payload.location,
+        hubName: payload.hubName,
         description: payload.description,
         source: payload.source || 'ADMIN',
         scannedBy: payload.scannedBy,
+        recipientName: payload.recipientName,
+        confirmationNote: payload.confirmationNote,
         createdAt: new Date().toISOString()
       }
     };
@@ -1687,4 +1760,37 @@ class PostgresDatabaseManager {
   }
 }
 
-export const db = new PostgresDatabaseManager();
+const rawDb = new PostgresDatabaseManager();
+
+export const db = new Proxy(rawDb, {
+  get(target, prop, receiver) {
+    if (prop === 'isPostgresConnected' || prop === 'ensureInitialized') {
+      return (target as any)[prop].bind(target);
+    }
+
+    const val = Reflect.get(target, prop, receiver);
+    if (typeof val === 'function') {
+      return async (...args: any[]) => {
+        await target.ensureInitialized();
+        if (!target.isPostgresConnected()) {
+          const inMemFn = (inMemoryDb as any)[prop];
+          if (typeof inMemFn === 'function') {
+            return inMemFn.apply(inMemoryDb, args);
+          }
+        }
+        try {
+          return await val.apply(target, args);
+        } catch (err: any) {
+          console.warn(`[Fashion Point DB] PostgreSQL query "${String(prop)}" failed (${err?.message}), falling back to in-memory store.`);
+          const fallbackFn = (inMemoryDb as any)[prop];
+          if (typeof fallbackFn === 'function') {
+            return fallbackFn.apply(inMemoryDb, args);
+          }
+          throw err;
+        }
+      };
+    }
+    return val;
+  }
+}) as PostgresDatabaseManager;
+

@@ -335,20 +335,56 @@ export const apiClient = {
         true
       ),
     lookupScanToken: (token: string) =>
-      request<{ success: boolean; order: any; trackingEvents: any[] }>(
+      request<{
+        success: boolean;
+        order: any;
+        trackingEvents: any[];
+        currentStatus?: string;
+        recommendedStage?: string;
+        allowedStages?: string[];
+        isDelivered?: boolean;
+        isCancelled?: boolean;
+      }>(
         `/admin/tracking/scan/${encodeURIComponent(token.trim())}`,
         {},
         true
       ),
+    processJourneyScan: (payload: {
+      scanInput: string;
+      stage: string;
+      location?: string;
+      hubName?: string;
+      targetStatus?: string;
+      notes?: string;
+      recipientName?: string;
+      confirmationCode?: string;
+    }) =>
+      request<{
+        success: boolean;
+        message: string;
+        order: any;
+        event: any;
+        trackingEvents: any[];
+      }>(
+        '/admin/tracking/journey-scan',
+        {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        },
+        true
+      ),
     submitScan: (payload: {
       token: string;
+      stage?: string;
       status?: string;
       location?: string;
       description?: string;
       courierName?: string;
       awbNumber?: string;
+      recipientName?: string;
+      hubName?: string;
     }) =>
-      request<{ success: boolean; message: string; order?: any; event?: any }>(
+      request<{ success: boolean; message: string; order?: any; event?: any; trackingEvents?: any[] }>(
         '/admin/tracking/scan',
         {
           method: 'POST',
