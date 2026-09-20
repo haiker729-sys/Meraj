@@ -45,7 +45,7 @@ export default function App() {
     return unsub;
   }, []);
 
-  // Listen for hash change or direct URL routing for #admin or /admin
+  // Listen for hash change or direct URL routing for #admin or /admin, and popstate
   useEffect(() => {
     const checkHash = () => {
       if (window.location.hash === '#admin' || window.location.pathname === '/admin') {
@@ -53,8 +53,18 @@ export default function App() {
       }
     };
     checkHash();
+
+    const handlePopState = () => {
+      checkHash();
+      setCurrentPath(window.location.pathname + window.location.search);
+    };
+
     window.addEventListener('hashchange', checkHash);
-    return () => window.removeEventListener('hashchange', checkHash);
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('hashchange', checkHash);
+      window.removeEventListener('popstate', handlePopState);
+    };
   }, []);
 
   // Global hotkey: Ctrl+Shift+A or Cmd+Shift+A opens Admin Portal
@@ -80,6 +90,13 @@ export default function App() {
     setIsAdminMode(false);
     setCurrentPath(path);
     setIsCartOpen(false);
+
+    try {
+      window.history.pushState(null, '', path);
+    } catch {
+      // Safe fallback in iframe contexts
+    }
+
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -127,23 +144,39 @@ export default function App() {
 
   // Parse path and query/params
   const renderCurrentPage = () => {
-    if (currentPath.startsWith('/product/')) {
-      const productId = currentPath.replace('/product/', '');
+    const [basePath, search = ''] = currentPath.split('?');
+    const queryParams = new URLSearchParams(search);
+
+    if (basePath.startsWith('/product/')) {
+      const productId = basePath.replace('/product/', '');
       return (
         <ProductDetailsPage
           productId={productId}
           onNavigate={handleNavigate}
-          onOpenCart={() => setIsCartOpen(true)}
+          onOpenCart={() => handleNavigate('/cart')}
         />
       );
     }
 
-    if (currentPath.startsWith('/order-success/')) {
-      const orderId = currentPath.replace('/order-success/', '');
+    if (basePath.startsWith('/order-success/')) {
+      const orderId = basePath.replace('/order-success/', '');
       return <OrderSuccessPage orderId={orderId} onNavigate={handleNavigate} />;
     }
 
-    switch (currentPath) {
+    if (basePath === '/order-tracking' || basePath.startsWith('/order-tracking/')) {
+      const pathOrderId = basePath.startsWith('/order-tracking/') ? basePath.replace('/order-tracking/', '') : '';
+      const initialOrderId = queryParams.get('orderId') || queryParams.get('id') || queryParams.get('token') || pathOrderId || '';
+      const initialMobile = queryParams.get('mobile') || '';
+      return (
+        <OrderTrackingPage
+          initialOrderId={initialOrderId}
+          initialMobile={initialMobile}
+          onNavigate={handleNavigate}
+        />
+      );
+    }
+
+    switch (basePath) {
       case '/home':
       case '/':
         return (
@@ -153,13 +186,20 @@ export default function App() {
           />
         );
 
-      case '/products':
+      case '/products': {
+        const categoryParam = queryParams.get('category') || undefined;
+        const searchParam = queryParams.get('search') || queryParams.get('q') || '';
+        const filterParam = queryParams.get('filter') || undefined;
         return (
           <ProductsPage
+            initialCategory={categoryParam}
+            initialSearch={searchParam}
+            initialFilter={filterParam}
             onNavigate={handleNavigate}
             onProductClick={handleProductClick}
           />
         );
+      }
 
       case '/categories':
         return <CategoriesPage onNavigate={handleNavigate} />;
@@ -175,9 +215,6 @@ export default function App() {
             onOrderPlaced={(orderId: string) => handleNavigate(`/order-success/${orderId}`)}
           />
         );
-
-      case '/order-tracking':
-        return <OrderTrackingPage onNavigate={handleNavigate} />;
 
       case '/wishlist':
         return (
@@ -229,7 +266,7 @@ export default function App() {
         onNavigate={handleNavigate}
         cartCount={cartTotalItems}
         wishlistCount={wishlistIds.length}
-        onOpenCart={() => setIsCartOpen(true)}
+        onOpenCart={() => handleNavigate('/cart')}
       />
 
       {/* Main Page Area */}
@@ -244,7 +281,7 @@ export default function App() {
         onNavigate={handleNavigate}
         cartCount={cartTotalItems}
         wishlistCount={wishlistIds.length}
-        onOpenCart={() => setIsCartOpen(true)}
+        onOpenCart={() => handleNavigate('/cart')}
       />
 
       {/* Slide-in Shopping Cart Drawer */}

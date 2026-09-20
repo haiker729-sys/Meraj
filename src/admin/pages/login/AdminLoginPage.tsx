@@ -13,7 +13,7 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
   onLoginSuccess,
   onBackToStore
 }) => {
-  const [username, setUsername] = useState('');
+  const [username, setUsername] = useState('meraj099');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -146,7 +146,7 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
                   autoFocus
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="e.g. admin"
+                  placeholder="e.g. meraj099 or admin"
                   className="w-full pl-10 pr-4 py-2.5 bg-neutral-950 border border-neutral-800 rounded-xl text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-amber-400 transition-colors"
                 />
               </div>
@@ -209,7 +209,7 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
               <div className="bg-neutral-900/80 p-2.5 rounded-lg border border-neutral-800 text-[11px] text-neutral-300 flex items-center justify-between">
                 <div>
                   <span className="text-neutral-500 block text-[10px] uppercase font-sans">Primary Admin Account</span>
-                  <span className="text-amber-300 font-bold font-mono">admin</span>
+                  <span className="text-amber-300 font-bold font-mono">meraj099</span>
                 </div>
                 <span className="text-[10px] text-neutral-400 bg-neutral-800 px-2 py-0.5 rounded">
                   Bcrypt Secured

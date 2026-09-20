@@ -54,6 +54,7 @@ export const AddressModal: React.FC<AddressModalProps> = ({
   });
 
   const [postOfficesList, setPostOfficesList] = useState<string[]>([]);
+  const [isCustomPostOffice, setIsCustomPostOffice] = useState(false);
   const [pinLookupLoading, setPinLookupLoading] = useState(false);
   const [pinLookupMessage, setPinLookupMessage] = useState<{ type: 'success' | 'warn' | 'error'; text: string } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -110,18 +111,27 @@ export const AddressModal: React.FC<AddressModalProps> = ({
       const res = await apiClient.postal.lookupPincode(pincode);
       if (res.found) {
         setPostOfficesList(res.postOffices || []);
+        const resolvedCity = res.city || res.district || '';
         if (shouldAutofill) {
           setFormData((prev) => ({
             ...prev,
             district: res.district || prev.district,
             state: res.state || prev.state,
-            villageTownCity: res.city || prev.villageTownCity,
+            villageTownCity: resolvedCity || prev.villageTownCity,
             postOffice: res.postOffices && res.postOffices.length > 0 ? res.postOffices[0] : prev.postOffice
           }));
         }
+        setErrors((prev) => {
+          const next = { ...prev };
+          delete next.pinCode;
+          delete next.villageTownCity;
+          delete next.district;
+          delete next.state;
+          return next;
+        });
         setPinLookupMessage({
           type: 'success',
-          text: `Verified PIN code: ${res.district}, ${res.state}`
+          text: `Verified PIN code: ${res.district || resolvedCity}, ${res.state}`
         });
       } else {
         setPostOfficesList([]);
@@ -341,30 +351,63 @@ export const AddressModal: React.FC<AddressModalProps> = ({
             </div>
 
             <div>
-              <label className="block font-bold text-neutral-700 uppercase tracking-wider mb-1">
-                Post Office (Optional)
-              </label>
-              {postOfficesList.length > 0 ? (
+              <div className="flex items-center justify-between mb-1">
+                <label className="block font-bold text-neutral-700 uppercase tracking-wider text-xs">
+                  Post Office / डाकघर
+                </label>
+                {postOfficesList.length > 0 && (
+                  <span className="text-[10px] font-bold text-amber-800 bg-amber-100/70 px-1.5 py-0.5 rounded-md">
+                    {postOfficesList.length} Found
+                  </span>
+                )}
+              </div>
+
+              {!isCustomPostOffice && postOfficesList.length > 0 ? (
                 <select
                   value={formData.postOffice}
-                  onChange={(e) => setFormData({ ...formData, postOffice: e.target.value })}
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-xl focus:border-black focus:outline-hidden bg-white"
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === '__CUSTOM__') {
+                      setIsCustomPostOffice(true);
+                      setFormData({ ...formData, postOffice: '' });
+                    } else {
+                      setFormData({
+                        ...formData,
+                        postOffice: val,
+                        villageTownCity: !formData.villageTownCity || formData.villageTownCity === formData.district ? val : formData.villageTownCity
+                      });
+                    }
+                  }}
+                  className="w-full px-3 py-2 border-2 border-neutral-300 focus:border-black rounded-xl focus:outline-hidden bg-white text-xs font-semibold text-neutral-900 cursor-pointer"
                 >
-                  <option value="">Select Post Office</option>
+                  <option value="">-- Choose your nearest Post Office ({postOfficesList.length}) --</option>
                   {postOfficesList.map((po) => (
                     <option key={po} value={po}>
-                      {po}
+                      {po} Post Office
                     </option>
                   ))}
+                  <option value="__CUSTOM__">✍️ Other Post Office (Type Manually)</option>
                 </select>
               ) : (
-                <input
-                  type="text"
-                  value={formData.postOffice}
-                  onChange={(e) => setFormData({ ...formData, postOffice: e.target.value })}
-                  placeholder="e.g. Main Post Office"
-                  className="w-full px-3 py-2 border border-neutral-300 rounded-xl focus:border-black focus:outline-hidden"
-                />
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={formData.postOffice}
+                    onChange={(e) => setFormData({ ...formData, postOffice: e.target.value })}
+                    placeholder="e.g. Sub Post Office or Branch Name"
+                    className="w-full px-3 py-2 border border-neutral-300 rounded-xl focus:border-black focus:outline-hidden text-xs bg-white"
+                  />
+                  {postOfficesList.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setIsCustomPostOffice(false)}
+                      className="px-2.5 py-2 text-[10px] font-bold text-neutral-700 bg-neutral-100 hover:bg-neutral-200 border border-neutral-300 rounded-xl shrink-0 cursor-pointer"
+                      title="Switch back to list"
+                    >
+                      List ({postOfficesList.length})
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           </div>

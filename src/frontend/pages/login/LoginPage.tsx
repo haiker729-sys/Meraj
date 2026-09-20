@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Sparkles, KeyRound, Lock, UserPlus, ArrowLeft, Store } from 'lucide-react';
+import { ShieldCheck, Sparkles, KeyRound, Lock, UserPlus, ArrowLeft } from 'lucide-react';
 import { OtpVerificationView } from './OtpVerificationView';
 import { PasswordVerificationView } from './PasswordVerificationView';
 import { RegisterView } from './RegisterView';
@@ -54,25 +54,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => onNavigate('/admin')}
-            className="hidden sm:flex items-center gap-1.5 text-xs text-neutral-400 hover:text-amber-300 px-3 py-1.5 rounded-xl bg-white/[0.03] hover:bg-white/[0.08] border border-white/10 transition-colors cursor-pointer"
-          >
-            <Store className="w-3.5 h-3.5" />
-            <span>Store Admin</span>
-          </button>
+          <div className="w-24 sm:w-28" />
         </div>
 
         {/* SPLIT GLASS GRID */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-          {/* LEFT: LIVE METRICS & BRAND SHOWCASE (Using User Provided Code) */}
+          {/* LEFT: BRAND PRIVILEGES & PERKS (Desktop only) */}
           <div className="hidden lg:block lg:col-span-6 p-8 rounded-3xl bg-white/[0.03] backdrop-blur-2xl border border-white/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.15)]">
             <GlassmorphicAuthStats />
           </div>
 
           {/* RIGHT: PREMIUM GLASSMORPHISM AUTHENTICATION CARD */}
-          <div className="lg:col-span-6">
+          <div className="lg:col-span-6 max-w-lg mx-auto w-full">
             <div className="relative p-6 sm:p-8 rounded-3xl bg-neutral-900/50 backdrop-blur-2xl border border-white/20 shadow-2xl shadow-black/80">
               {/* Glass Card Specular Highlight Edge */}
               <div className="absolute inset-x-8 top-0 h-[1px] bg-gradient-to-r from-transparent via-white/40 to-transparent" />
@@ -174,11 +167,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onNavigate }) => {
               </div>
             </div>
           </div>
-        </div>
-
-        {/* MOBILE SHOWCASE ACCORDION FOR STATS */}
-        <div className="mt-8 lg:hidden p-6 rounded-3xl bg-white/[0.03] backdrop-blur-xl border border-white/10">
-          <GlassmorphicAuthStats />
         </div>
       </div>
     </div>

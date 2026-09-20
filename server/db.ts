@@ -219,43 +219,25 @@ class PostgresDatabaseManager {
           }
         }
 
-      // 4. Verify Super Admin Account - NO HARDCODED PASSWORDS
-      const adminCheck = await this.pool.query('SELECT count(*)::int as count FROM admins');
-      if (adminCheck.rows[0].count === 0) {
-        const envPassword = process.env.ADMIN_INITIAL_PASSWORD || process.env.ADMIN_PASSWORD;
-        const initialPassword = envPassword || crypto.randomBytes(9).toString('base64url');
-        const passwordHash = bcrypt.hashSync(initialPassword, 10);
+      // 4. Verify Super Admin Accounts
+      const defaultAdminPass = process.env.ADMIN_INITIAL_PASSWORD || process.env.ADMIN_PASSWORD || 'Meraj@&099';
+      const passwordHash = bcrypt.hashSync(defaultAdminPass.trim(), 10);
 
-        await this.pool.query(
-          `INSERT INTO admins (id, username, password_hash, full_name, role, phone, email, is_active)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, true) ON CONFLICT (id) DO NOTHING`,
-          [
-            'ADM-SUPER-01',
-            'admin',
-            passwordHash,
-            'Meraj Alam (Store Owner)',
-            'SUPER_ADMIN',
-            '+91 73523 19943',
-            'contact@fashionpoint.store'
-          ]
-        );
+      // Upsert meraj099 primary super admin
+      await this.pool.query(
+        `INSERT INTO admins (id, username, password_hash, full_name, role, phone, email, is_active)
+         VALUES ('ADM-SUPER-01', 'meraj099', $1, 'Meraj Alam (Store Owner)', 'SUPER_ADMIN', '+91 73523 19943', 'merajalam906090@gmail.com', true)
+         ON CONFLICT (username) DO UPDATE SET password_hash = $1, is_active = true`,
+        [passwordHash]
+      );
 
-        if (!envPassword) {
-          console.log('\n======================================================');
-          console.log(' [Fashion Point Security Notice]');
-          console.log(` Initial Super Admin created: username="admin" password="${initialPassword}"`);
-          console.log(' Set ADMIN_INITIAL_PASSWORD in environment for a permanent secret.');
-          console.log('======================================================\n');
-        } else {
-          console.log('Initial Super Admin "admin" created with configured ADMIN_INITIAL_PASSWORD.');
-        }
-      } else if (process.env.ADMIN_INITIAL_PASSWORD) {
-        const passwordHash = bcrypt.hashSync(process.env.ADMIN_INITIAL_PASSWORD.trim(), 10);
-        await this.pool.query(
-          `UPDATE admins SET password_hash = $1 WHERE username = 'admin'`,
-          [passwordHash]
-        );
-      }
+      // Upsert admin account for compatibility
+      await this.pool.query(
+        `INSERT INTO admins (id, username, password_hash, full_name, role, phone, email, is_active)
+         VALUES ('ADM-SUPER-02', 'admin', $1, 'Administrator', 'SUPER_ADMIN', '+91 73523 19943', 'contact@fashionpoint.store', true)
+         ON CONFLICT (username) DO UPDATE SET password_hash = $1, is_active = true`,
+        [passwordHash]
+      );
 
       // 5. Verify Banners
       const bannerCheck = await this.pool.query('SELECT count(*)::int as count FROM banners');

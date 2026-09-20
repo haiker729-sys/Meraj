@@ -78,6 +78,7 @@ export interface ShippingAddress {
   state: string;
   pinCode: string;
   landmark?: string;
+  postOffice?: string;
 }
 
 export interface OrderItem {

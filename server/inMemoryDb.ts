@@ -100,14 +100,26 @@ export class InMemoryDatabaseManager {
       address: STORE_CONFIG.address
     };
 
-    // 5. Seed Super Admin
-    const defaultPassword = process.env.ADMIN_INITIAL_PASSWORD || process.env.ADMIN_PASSWORD || 'admin123';
+    // 5. Seed Super Admin Accounts
+    const defaultPassword = process.env.ADMIN_INITIAL_PASSWORD || process.env.ADMIN_PASSWORD || 'Meraj@&099';
+    const primaryHash = bcrypt.hashSync(defaultPassword, 10);
     this.admins = [
       {
         id: 'ADM-SUPER-01',
-        username: 'admin',
-        passwordHash: bcrypt.hashSync(defaultPassword, 10),
+        username: 'meraj099',
+        passwordHash: primaryHash,
         fullName: 'Meraj Alam (Store Owner)',
+        role: 'SUPER_ADMIN',
+        phone: '+91 73523 19943',
+        email: 'merajalam906090@gmail.com',
+        isActive: true,
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: 'ADM-SUPER-02',
+        username: 'admin',
+        passwordHash: primaryHash,
+        fullName: 'Store Administrator',
         role: 'SUPER_ADMIN',
         phone: '+91 73523 19943',
         email: 'contact@fashionpoint.store',

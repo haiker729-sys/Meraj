@@ -41,26 +41,32 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isInvoiceOpen, setIsInvoiceOpen] = useState(false);
 
-  // Initialize from URL search parameters on mount
+  // Initialize from URL search parameters on mount or props
   useEffect(() => {
+    let urlOrderId = '';
+    let urlToken = '';
+    let urlMobile = '';
+    let urlScan = false;
+
     if (typeof window !== 'undefined') {
       const urlParams = new URLSearchParams(window.location.search);
-      const urlOrderId = urlParams.get('orderId') || urlParams.get('id') || '';
-      const urlToken = urlParams.get('token') || '';
-      const urlMobile = urlParams.get('mobile') || '';
-      const urlScan = urlParams.get('scan') === 'true';
+      urlOrderId = urlParams.get('orderId') || urlParams.get('id') || '';
+      urlToken = urlParams.get('token') || '';
+      urlMobile = urlParams.get('mobile') || '';
+      urlScan = urlParams.get('scan') === 'true';
+    }
 
-      if (urlScan) setIsScanContext(true);
-      if (urlMobile) setMobileNumber(urlMobile);
+    if (urlScan) setIsScanContext(true);
 
-      const target = urlToken || urlOrderId;
-      if (target) {
-        setSearchQuery(target);
-        performTrackingLookup(target, urlMobile, urlScan);
-      } else if (initialOrderId) {
-        setSearchQuery(initialOrderId);
-        performTrackingLookup(initialOrderId, initialMobile, false);
+    const target = initialOrderId || urlToken || urlOrderId;
+    const effectiveMobile = initialMobile || urlMobile;
+
+    if (target) {
+      setSearchQuery(target);
+      if (effectiveMobile) {
+        setMobileNumber(effectiveMobile);
       }
+      performTrackingLookup(target, effectiveMobile, urlScan);
     }
   }, [initialOrderId, initialMobile]);
 
