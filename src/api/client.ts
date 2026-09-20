@@ -224,6 +224,14 @@ export const apiClient = {
     getStats: () => request<{ success: boolean; stats: any }>('/admin/stats', {}, true),
     getInventory: () => request<{ success: boolean; inventory: any }>('/admin/inventory', {}, true),
     getSettings: () => request<{ success: boolean; settings: any }>('/admin/settings', {}, true),
+    getIntegrationsStatus: () =>
+      request<{
+        success: boolean;
+        launchTier: string;
+        database: string;
+        codAvailable: boolean;
+        services: Record<string, string>;
+      }>('/admin/integrations/status', {}, true),
     updateSettings: (data: any) =>
       request<{ success: boolean; settings: any }>('/admin/settings', {
         method: 'PUT',

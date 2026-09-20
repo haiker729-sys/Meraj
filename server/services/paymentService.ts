@@ -31,8 +31,10 @@ class BackendPaymentService {
   public getPublicConfig() {
     return {
       isConfigured: this.isConfigured(),
+      status: this.isConfigured() ? 'Configured' : 'Not configured',
       keyId: this.keyId ? this.keyId : null,
-      currency: 'INR'
+      currency: 'INR',
+      codAvailable: true
     };
   }
 

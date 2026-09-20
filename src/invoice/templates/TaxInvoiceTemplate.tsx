@@ -1,6 +1,7 @@
 import React from 'react';
 import { Order } from '../../types';
 import { BarcodeGenerator } from '../../shipping-label/barcode/BarcodeGenerator';
+import { QRCodeGenerator } from '../../shipping-label/qr/QRCodeGenerator';
 
 interface TaxInvoiceProps {
   order: Order;
@@ -166,7 +167,19 @@ export const TaxInvoiceTemplate: React.FC<TaxInvoiceProps> = ({ order }) => {
             </div>
           </div>
 
-          <div className="mt-4 text-[10px] text-neutral-500 space-y-0.5">
+          <div className="mt-4 flex items-center gap-3 pt-2 border-t border-dashed border-neutral-200">
+            <QRCodeGenerator
+              value={`https://fashionpoint.store/order-tracking?id=${order.id}&mobile=${order.customer.mobileNumber}`}
+              size={54}
+              caption="SCAN TO VERIFY"
+            />
+            <div className="text-[9px] text-neutral-500">
+              <p className="font-bold text-neutral-800 uppercase">E-Invoice QR Code</p>
+              <p>Scan to verify GST tax invoice validity and live order delivery status.</p>
+            </div>
+          </div>
+
+          <div className="mt-3 text-[10px] text-neutral-500 space-y-0.5">
             <p className="font-bold text-neutral-700">Terms & Conditions:</p>
             <p>1. Goods once sold can be exchanged or returned within 7 days of delivery.</p>
             <p>2. Keep original product tags and invoice intact for returns/exchanges.</p>

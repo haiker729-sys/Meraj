@@ -148,14 +148,14 @@ router.post('/request-otp', async (req: Request, res: Response) => {
       attempts: (existing?.attempts || 0) + 1
     });
 
-    const isSmsConfigured = Boolean(process.env.SMS_PROVIDER_KEY);
+    const isSmsConfigured = Boolean(process.env.SMS_API_KEY || process.env.SMS_PROVIDER_KEY);
 
     if (isSmsConfigured) {
       // In production with SMS provider configured, dispatch via provider API
       console.log(`[Fashion Point SMS] Outbound OTP dispatched to +91 ${cleanMobile}`);
     } else {
       console.log(
-        `[Fashion Point Dev Info] SMS_PROVIDER_KEY not set. Generated OTP for testing: ${rawOtp} (Valid for 5 mins)`
+        `[Fashion Point Dev Info] SMS provider is not configured. Customer accounts can register and sign in with password without SMS costs.`
       );
     }
 
@@ -163,8 +163,9 @@ router.post('/request-otp', async (req: Request, res: Response) => {
       success: true,
       message: isSmsConfigured
         ? `OTP code sent to +91 ${cleanMobile}. Valid for 5 minutes.`
-        : `SMS provider is not configured. (For development/test testing: OTP is logged in server console: ${rawOtp})`,
+        : `SMS provider is not configured. Customer accounts can register and sign in with password without SMS costs.`,
       providerConfigured: isSmsConfigured,
+      status: isSmsConfigured ? 'Configured' : 'Not configured',
       expiresInSeconds: 300
     });
   } catch (err: any) {

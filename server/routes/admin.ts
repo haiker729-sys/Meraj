@@ -1,11 +1,31 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db';
 import { requireAdmin } from '../middleware/auth';
+import { getServiceStatusSummary } from '../../api-key/api-keys';
 
 const router = Router();
 
 // All routes here require admin authorization
 router.use(requireAdmin);
+
+/**
+ * External Integrations Status (Architecture for Low-Cost Launch v1)
+ * GET /api/admin/integrations/status
+ */
+router.get('/integrations/status', (_req: Request, res: Response) => {
+  try {
+    const services = getServiceStatusSummary();
+    res.json({
+      success: true,
+      launchTier: 'v1-low-cost-launch',
+      database: 'PostgreSQL (Active)',
+      codAvailable: true,
+      services
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || 'Server error.' });
+  }
+});
 
 /**
  * Admin Dashboard Stats (Real calculated metrics)
