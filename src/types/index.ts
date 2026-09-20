@@ -132,12 +132,75 @@ export interface Order {
   invoiceNumber: string;
   notes?: string;
   estimatedDelivery?: string;
+  trackingToken?: string;
+  currentLocation?: string;
+  expectedDeliveryDate?: string;
+  shippingName?: string;
+  shippingPhone?: string;
+  shippingAddressLine?: string;
+  shippingCity?: string;
+  shippingDistrict?: string;
+  shippingState?: string;
+  shippingPincode?: string;
   taxBreakdown?: {
     taxableAmount: number;
     cgst: number;
     sgst: number;
     totalGst: number;
   };
+}
+
+export interface CustomerProfile {
+  id: number | string;
+  uid?: string;
+  fullName: string;
+  mobile: string;
+  email?: string;
+  dateOfBirth?: string;
+  gender?: string;
+  role?: string;
+  createdAt?: string;
+}
+
+export interface CustomerAddress {
+  id: string;
+  userId: number | string;
+  fullName: string;
+  mobileNumber: string;
+  houseBuilding: string;
+  streetArea: string;
+  villageTownCity: string;
+  postOffice?: string;
+  district: string;
+  state: string;
+  pinCode: string;
+  landmark?: string;
+  addressType: 'HOME' | 'WORK' | 'OTHER' | string;
+  isDefault: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface PostalCodeLookup {
+  success: boolean;
+  found: boolean;
+  pincode: string;
+  district: string;
+  state: string;
+  city: string;
+  postOffices: string[];
+}
+
+export interface OrderTrackingEvent {
+  id: string;
+  orderId: string;
+  trackingNumber: string;
+  status: string;
+  location?: string;
+  description: string;
+  source: string;
+  scannedBy?: string;
+  createdAt: string;
 }
 
 export interface Coupon {

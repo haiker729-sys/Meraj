@@ -2,24 +2,27 @@ import React, { useState, useEffect } from 'react';
 import { Order } from '../../../types';
 import { apiClient } from '../../../api/client';
 import { PrintLabelModal } from '../../../shipping-label/print/PrintLabelModal';
-import { Truck, Printer, Search, Package, MapPin, CheckCircle2 } from 'lucide-react';
+import { AdminTrackingScannerModal } from './AdminTrackingScannerModal';
+import { Truck, Printer, Search, Package, MapPin, CheckCircle2, QrCode } from 'lucide-react';
 
 export const AdminShippingPage: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrderForLabel, setSelectedOrderForLabel] = useState<Order | null>(null);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
+
+  const fetchShippingOrders = async () => {
+    try {
+      const res = await apiClient.orders.list({ limit: 100 });
+      if (res?.orders) {
+        setOrders(res.orders);
+      }
+    } catch (err) {
+      console.error('Failed to load shipping orders:', err);
+    }
+  };
 
   useEffect(() => {
-    const fetchShippingOrders = async () => {
-      try {
-        const res = await apiClient.orders.list({ limit: 100 });
-        if (res?.orders) {
-          setOrders(res.orders);
-        }
-      } catch (err) {
-        console.error('Failed to load shipping orders:', err);
-      }
-    };
     fetchShippingOrders();
   }, []);
 
@@ -38,7 +41,7 @@ export const AdminShippingPage: React.FC = () => {
 
   return (
     <div className="p-6 space-y-6">
-      {/* Top Banner explaining printing capability */}
+      {/* Top Banner explaining printing capability & QR scanner */}
       <div className="bg-gradient-to-r from-neutral-900 via-neutral-950 to-neutral-900 text-white p-6 rounded-3xl border border-neutral-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-amber-400 font-mono text-xs font-bold uppercase mb-1">
@@ -50,6 +53,15 @@ export const AdminShippingPage: React.FC = () => {
             Compliant with standard Indian e-commerce thermal printers (TVS, TSC, Zebra) and standard A4 laser printers. Includes auto-rendered Code 128 barcode, QR Code, return address, and COD cash collection indicators.
           </p>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setIsScannerOpen(true)}
+          className="px-5 py-3 bg-white text-black hover:bg-neutral-100 font-bold rounded-2xl text-xs flex items-center gap-2 shadow-lg transition-all shrink-0 self-start sm:self-auto"
+        >
+          <QrCode className="w-4 h-4 text-black" />
+          <span>Dispatch & QR Scanner</span>
+        </button>
       </div>
 
       {/* Orders ready for label generation */}
@@ -66,9 +78,19 @@ export const AdminShippingPage: React.FC = () => {
             />
           </div>
 
-          <span className="text-xs text-neutral-500">
-            <strong className="font-mono text-black">{filteredOrders.length}</strong> active consignments
-          </span>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsScannerOpen(true)}
+              className="px-3.5 py-1.5 bg-neutral-100 hover:bg-neutral-200 text-neutral-900 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+            >
+              <QrCode className="w-3.5 h-3.5" />
+              <span>Scan QR / Barcode</span>
+            </button>
+            <span className="text-xs text-neutral-500">
+              <strong className="font-mono text-black">{filteredOrders.length}</strong> active consignments
+            </span>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -79,24 +101,24 @@ export const AdminShippingPage: React.FC = () => {
                 <th className="p-3.5">Recipient Buyer</th>
                 <th className="p-3.5">Destination PIN & City</th>
                 <th className="p-3.5">Courier & AWB</th>
-                <th className="p-3.5">Package Mode</th>
+                <th className="p-3.5">Payment</th>
                 <th className="p-3.5">Status</th>
-                <th className="p-3.5 text-right">Label Action</th>
+                <th className="p-3.5 text-right">Label Generation</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-neutral-100 font-medium">
+            <tbody className="divide-y divide-neutral-100 font-medium text-neutral-800">
               {filteredOrders.map((order) => (
-                <tr key={order.id} className="hover:bg-neutral-50/80 transition-colors">
-                  <td className="p-3.5 font-mono font-bold text-neutral-900">{order.id}</td>
+                <tr key={order.id} className="hover:bg-neutral-50/60 transition-colors">
+                  <td className="p-3.5 font-mono font-bold text-neutral-950">
+                    {order.id}
+                  </td>
                   <td className="p-3.5">
                     <span className="font-bold text-neutral-900 block">{order.customer.fullName}</span>
-                    <span className="font-mono text-[10px] text-neutral-500">+91 {order.customer.mobileNumber}</span>
+                    <span className="font-mono text-[11px] text-neutral-500">+91 {order.customer.mobileNumber}</span>
                   </td>
-                  <td className="p-3.5 text-neutral-700">
-                    <span>{order.shippingAddress.city}, {order.shippingAddress.state}</span>
-                    <span className="font-mono text-[10px] text-neutral-500 block font-bold">
-                      PIN: {order.shippingAddress.pinCode}
-                    </span>
+                  <td className="p-3.5">
+                    <span className="text-neutral-900 block font-semibold">{order.shippingAddress.city}, {order.shippingAddress.state}</span>
+                    <span className="font-mono text-[11px] text-neutral-500">PIN: {order.shippingAddress.pinCode}</span>
                   </td>
                   <td className="p-3.5">
                     <span className="text-neutral-900 font-semibold block">{order.courierName}</span>
@@ -140,6 +162,13 @@ export const AdminShippingPage: React.FC = () => {
         isOpen={!!selectedOrderForLabel}
         onClose={() => setSelectedOrderForLabel(null)}
         order={selectedOrderForLabel}
+      />
+
+      {/* Admin QR Scanner Modal */}
+      <AdminTrackingScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        onOrderUpdated={fetchShippingOrders}
       />
     </div>
   );

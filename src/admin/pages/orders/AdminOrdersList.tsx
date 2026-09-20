@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Order, OrderStatus } from '../../../types';
 import { apiClient } from '../../../api/client';
-import { Search, Printer, FileText, Eye, Filter, Ban, CheckCircle2, AlertCircle, X } from 'lucide-react';
+import { Search, Printer, FileText, Eye, Filter, Ban, CheckCircle2, AlertCircle, X, QrCode } from 'lucide-react';
 import { AdminOrderDetailsModal } from './AdminOrderDetailsModal';
 import { PrintLabelModal } from '../../../shipping-label/print/PrintLabelModal';
 import { PrintInvoiceModal } from '../../../invoice/print/PrintInvoiceModal';
+import { AdminTrackingScannerModal } from '../shipping/AdminTrackingScannerModal';
 
 export const AdminOrdersList: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
@@ -13,6 +14,7 @@ export const AdminOrdersList: React.FC = () => {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [labelOrder, setLabelOrder] = useState<Order | null>(null);
   const [invoiceOrder, setInvoiceOrder] = useState<Order | null>(null);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [cancellingOrder, setCancellingOrder] = useState<Order | null>(null);
   const [cancelReason, setCancelReason] = useState('Customer requested cancellation');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -127,8 +129,18 @@ export const AdminOrdersList: React.FC = () => {
             />
           </div>
 
-          <div className="text-xs text-neutral-500 font-medium">
-            Showing <strong className="text-black font-mono">{filteredOrders.length}</strong> orders
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsScannerOpen(true)}
+              className="px-3.5 py-2 bg-black text-white hover:bg-neutral-800 font-bold rounded-xl text-xs flex items-center gap-1.5 transition-colors shadow-2xs"
+            >
+              <QrCode className="w-3.5 h-3.5 text-amber-300" />
+              <span>Dispatch QR Scanner</span>
+            </button>
+            <div className="text-xs text-neutral-500 font-medium">
+              Showing <strong className="text-black font-mono">{filteredOrders.length}</strong> orders
+            </div>
           </div>
         </div>
 
@@ -387,6 +399,11 @@ export const AdminOrdersList: React.FC = () => {
         isOpen={!!invoiceOrder}
         onClose={() => setInvoiceOrder(null)}
         order={invoiceOrder}
+      />
+      <AdminTrackingScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        onOrderUpdated={handleRefresh}
       />
     </div>
   );

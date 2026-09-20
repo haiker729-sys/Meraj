@@ -10,6 +10,8 @@ import ordersRouter from './server/routes/orders';
 import paymentsRouter from './server/routes/payments';
 import couponsRouter from './server/routes/coupons';
 import adminRouter from './server/routes/admin';
+import customerRouter from './server/routes/customer';
+import postalRouter from './server/routes/postal';
 
 async function startServer() {
   const app = express();
@@ -45,6 +47,8 @@ async function startServer() {
   app.use('/api/payments', paymentsRouter);
   app.use('/api/coupons', couponsRouter);
   app.use('/api/admin', adminRouter);
+  app.use('/api/customer', customerRouter);
+  app.use('/api/postal', postalRouter);
 
   // Global error handler (Never expose raw stack traces to client)
   app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

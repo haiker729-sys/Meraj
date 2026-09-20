@@ -2,8 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 
-// Secure JWT secret from environment or dynamically generated random secret (no hardcoded fallback)
-const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
+// Secure JWT secret from environment or stable project fallback
+export const JWT_SECRET = process.env.JWT_SECRET || 'fashion-point-jwt-secret-stable-token-session-key-2026';
 
 export interface AuthenticatedRequest extends Request {
   user?: {

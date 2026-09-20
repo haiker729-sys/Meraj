@@ -56,16 +56,26 @@ async function request<T>(endpoint: string, options: RequestInit = {}, isAdmin =
 
 export const apiClient = {
   auth: {
-    login: (identifier: string, password: string) =>
-      request<{ success: boolean; token: string; user: any }>('/auth/login', {
+    login: async (identifier: string, password: string) => {
+      const res = await request<{ success: boolean; token: string; user: any }>('/auth/login', {
         method: 'POST',
         body: JSON.stringify({ identifier, password })
-      }),
-    register: (payload: { fullName: string; mobile: string; email?: string; password?: string }) =>
-      request<{ success: boolean; token: string; user: any }>('/auth/register', {
+      });
+      if (res?.token) {
+        setCustomerToken(res.token);
+      }
+      return res;
+    },
+    register: async (payload: { fullName: string; mobile: string; email?: string; password?: string }) => {
+      const res = await request<{ success: boolean; token: string; user: any }>('/auth/register', {
         method: 'POST',
         body: JSON.stringify(payload)
-      }),
+      });
+      if (res?.token) {
+        setCustomerToken(res.token);
+      }
+      return res;
+    },
     requestOtp: (mobile: string) =>
       request<{ success: boolean; message: string; providerConfigured: boolean; expiresInSeconds: number }>(
         '/auth/request-otp',
@@ -74,12 +84,20 @@ export const apiClient = {
           body: JSON.stringify({ mobile })
         }
       ),
-    verifyOtp: (mobile: string, otp: string, fullName?: string) =>
-      request<{ success: boolean; token: string; user: any }>('/auth/verify-otp', {
+    verifyOtp: async (mobile: string, otp: string, fullName?: string) => {
+      const res = await request<{ success: boolean; token: string; user: any }>('/auth/verify-otp', {
         method: 'POST',
         body: JSON.stringify({ mobile, otp, fullName })
-      }),
-    getMe: () => request<{ success: boolean; user: any }>('/auth/me')
+      });
+      if (res?.token) {
+        setCustomerToken(res.token);
+      }
+      return res;
+    },
+    getMe: () => request<{ success: boolean; user: any }>('/auth/me'),
+    logout: () => {
+      setCustomerToken(null);
+    }
   },
 
   adminAuth: {
@@ -162,16 +180,65 @@ export const apiClient = {
       }, true)
   },
 
+  customer: {
+    getProfile: () => request<{ success: boolean; profile: any }>('/customer/profile'),
+    updateProfile: (data: { fullName: string; mobile: string; email?: string; dateOfBirth?: string; gender?: string }) =>
+      request<{ success: boolean; profile: any; message: string }>('/customer/profile', {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      }),
+    getAddresses: () => request<{ success: boolean; addresses: any[] }>('/customer/addresses'),
+    createAddress: (data: any) =>
+      request<{ success: boolean; address: any; message: string }>('/customer/addresses', {
+        method: 'POST',
+        body: JSON.stringify(data)
+      }),
+    updateAddress: (id: string, data: any) =>
+      request<{ success: boolean; address: any; message: string }>(`/customer/addresses/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      }),
+    deleteAddress: (id: string) =>
+      request<{ success: boolean; message: string }>(`/customer/addresses/${id}`, {
+        method: 'DELETE'
+      }),
+    setDefaultAddress: (id: string) =>
+      request<{ success: boolean; message: string }>(`/customer/addresses/${id}/default`, {
+        method: 'PATCH'
+      }),
+    getOrders: () => request<{ success: boolean; orders: any[]; total: number }>('/customer/orders')
+  },
+
+  postal: {
+    lookupPincode: (pincode: string) =>
+      request<{
+        success: boolean;
+        found: boolean;
+        pincode: string;
+        district: string;
+        state: string;
+        city: string;
+        postOffices: string[];
+      }>(`/postal/pincode/${pincode.trim()}`)
+  },
+
   orders: {
     create: (orderPayload: any) =>
       request<{ success: boolean; order: any; message: string }>('/orders', {
         method: 'POST',
         body: JSON.stringify(orderPayload)
       }),
-    track: (query: string, mobile?: string) => {
-      const qs = mobile ? `?mobile=${encodeURIComponent(mobile)}` : '';
-      return request<{ success: boolean; order: any }>(`/orders/track/${encodeURIComponent(query)}${qs}`);
+    track: (query: string, mobile?: string, scan = false) => {
+      const params = new URLSearchParams();
+      if (mobile) params.append('mobile', mobile);
+      if (scan) params.append('scan', 'true');
+      const qs = params.toString() ? `?${params.toString()}` : '';
+      return request<{ success: boolean; order: any; trackingEvents?: any[] }>(
+        `/orders/track/${encodeURIComponent(query.trim())}${qs}`
+      );
     },
+    getTracking: (id: string) =>
+      request<{ success: boolean; order: any; trackingEvents: any[] }>(`/orders/${id}/tracking`),
     myOrders: () => request<{ success: boolean; orders: any[]; total: number }>('/orders/my-orders'),
     list: (params?: Record<string, any>) => {
       const searchParams = new URLSearchParams();
@@ -251,6 +318,43 @@ export const apiClient = {
     deleteAdmin: (id: string) =>
       request<{ success: boolean; message: string }>(`/admin/users/${id}`, {
         method: 'DELETE'
-      }, true)
+      }, true),
+    updateTracking: (orderId: string, payload: {
+      status: string;
+      location?: string;
+      description: string;
+      courierName?: string;
+      awbNumber?: string;
+    }) =>
+      request<{ success: boolean; message: string; order: any; event: any }>(
+        `/admin/orders/${orderId}/tracking`,
+        {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        },
+        true
+      ),
+    lookupScanToken: (token: string) =>
+      request<{ success: boolean; order: any; trackingEvents: any[] }>(
+        `/admin/tracking/scan/${encodeURIComponent(token.trim())}`,
+        {},
+        true
+      ),
+    submitScan: (payload: {
+      token: string;
+      status?: string;
+      location?: string;
+      description?: string;
+      courierName?: string;
+      awbNumber?: string;
+    }) =>
+      request<{ success: boolean; message: string; order?: any; event?: any }>(
+        '/admin/tracking/scan',
+        {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        },
+        true
+      )
   }
 };

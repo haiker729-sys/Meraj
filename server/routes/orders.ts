@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
+import jwt from 'jsonwebtoken';
 import { db } from '../db';
-import { authenticateToken, requireAdmin, AuthenticatedRequest } from '../middleware/auth';
+import { authenticateToken, requireAdmin, AuthenticatedRequest, JWT_SECRET } from '../middleware/auth';
 import { notificationService } from '../services/notificationService';
 
 const router = Router();
@@ -12,6 +13,21 @@ const router = Router();
 router.post('/', async (req: Request, res: Response) => {
   try {
     const { customer, shippingAddress, items, paymentMethod, couponCode, customerNote, userId } = req.body;
+
+    // Check if customer is authenticated via Bearer token
+    let authenticatedUserId = userId;
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      try {
+        const token = authHeader.substring(7);
+        const decoded: any = jwt.verify(token, JWT_SECRET);
+        if (decoded && decoded.id) {
+          authenticatedUserId = decoded.id;
+        }
+      } catch {
+        // Continue if token invalid or expired
+      }
+    }
 
     if (!customer || !customer.fullName || !customer.mobileNumber) {
       res.status(400).json({ success: false, error: 'Customer name and 10-digit mobile number are required.' });
@@ -35,7 +51,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     // Call transactional order creation in database
     const createdOrder = await db.createOrder({
-      userId,
+      userId: authenticatedUserId,
       customer,
       shippingAddress,
       items,
@@ -67,17 +83,58 @@ router.get('/track/:query', async (req: Request, res: Response) => {
   try {
     const { query } = req.params;
     const mobile = (req.query.mobile as string) || undefined;
+    const isScan = req.query.scan === 'true';
 
     const order = await db.trackOrder(query, mobile);
     if (!order) {
       res.status(404).json({
         success: false,
-        error: `No active order found matching "${query}". Please verify your Order ID / AWB number.`
+        error: `No active order found matching "${query}". Please verify your Order ID, Tracking Number, or Scan Token.`
       });
       return;
     }
 
-    res.json({ success: true, order });
+    // A normal customer QR scan must NOT change the parcel status.
+    // It only logs a read-only customer QR scan event for audit records.
+    if (isScan) {
+      await db.recordQrScan({
+        orderId: order.id,
+        trackingNumber: order.trackingNumber,
+        scannerType: 'CUSTOMER',
+        location: order.currentLocation
+      }).catch(console.warn);
+    }
+
+    const trackingEvents = await db.getOrderTrackingEvents(order.id);
+
+    res.json({
+      success: true,
+      order,
+      trackingEvents
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || 'Server error.' });
+  }
+});
+
+/**
+ * Get Order Tracking Events
+ * GET /api/orders/:id/tracking
+ */
+router.get('/:id/tracking', async (req: Request, res: Response) => {
+  try {
+    const order = await db.getOrderById(req.params.id);
+    if (!order) {
+      res.status(404).json({ success: false, error: 'Order not found.' });
+      return;
+    }
+
+    const trackingEvents = await db.getOrderTrackingEvents(order.id);
+    res.json({
+      success: true,
+      order,
+      trackingEvents
+    });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message || 'Server error.' });
   }

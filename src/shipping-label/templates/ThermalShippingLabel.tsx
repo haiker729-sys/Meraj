@@ -9,9 +9,10 @@ interface LabelProps {
 }
 
 export const ThermalShippingLabel: React.FC<LabelProps> = ({ order, format = '4x6' }) => {
+  const tokenParam = order.trackingToken ? `&token=${encodeURIComponent(order.trackingToken)}` : '';
   const trackingUrl = typeof window !== 'undefined'
-    ? `${window.location.origin}/order-tracking?id=${order.id}&mobile=${order.customer.mobileNumber}`
-    : `https://fashionpoint.store/order-tracking/${order.id}`;
+    ? `${window.location.origin}/order-tracking?orderId=${encodeURIComponent(order.id)}${tokenParam}&scan=true`
+    : `https://fashionpoint.store/order-tracking?orderId=${encodeURIComponent(order.id)}${tokenParam}&scan=true`;
 
   const isCOD = order.paymentMethod === 'COD';
   const totalQuantity = order.items.reduce((sum, item) => sum + item.quantity, 0);

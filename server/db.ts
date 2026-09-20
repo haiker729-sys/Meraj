@@ -69,6 +69,16 @@ function mapOrderRow(r: any) {
     razorpayPaymentId: r.razorpay_payment_id,
     courierName: r.courier_name,
     trackingNumber: r.tracking_number,
+    trackingToken: r.tracking_token || r.tracking_number || r.id,
+    currentLocation: r.current_location || 'Fashion Point Central Fulfilment Hub, Indore',
+    expectedDeliveryDate: r.expected_delivery_date || r.estimated_delivery || '3 - 5 Business Days',
+    shippingName: r.shipping_name || (typeof r.customer === 'string' ? JSON.parse(r.customer)?.fullName : r.customer?.fullName),
+    shippingPhone: r.shipping_phone || (typeof r.customer === 'string' ? JSON.parse(r.customer)?.mobileNumber : r.customer?.mobileNumber),
+    shippingAddressLine: r.shipping_address_line,
+    shippingCity: r.shipping_city || (typeof r.shipping_address === 'string' ? JSON.parse(r.shipping_address)?.city : r.shipping_address?.city),
+    shippingDistrict: r.shipping_district || (typeof r.shipping_address === 'string' ? JSON.parse(r.shipping_address)?.district : r.shipping_address?.district),
+    shippingState: r.shipping_state || (typeof r.shipping_address === 'string' ? JSON.parse(r.shipping_address)?.state : r.shipping_address?.state),
+    shippingPincode: r.shipping_pincode || (typeof r.shipping_address === 'string' ? JSON.parse(r.shipping_address)?.pinCode : r.shipping_address?.pinCode),
     awbNumber: r.awb_number,
     invoiceNumber: r.invoice_number,
     estimatedDelivery: r.estimated_delivery,
@@ -575,17 +585,18 @@ class PostgresDatabaseManager {
 
   public async trackOrder(query: string, mobileNumber?: string) {
     await this.initDatabase();
-    const clean = query.trim().toUpperCase();
+    const clean = query.trim();
+    const cleanUpper = clean.toUpperCase();
 
     let sql = `
       SELECT * FROM orders
-      WHERE (UPPER(id) = $1 OR UPPER(tracking_number) = $1 OR UPPER(invoice_number) = $1)
+      WHERE (UPPER(id) = $1 OR UPPER(tracking_number) = $1 OR UPPER(invoice_number) = $1 OR tracking_token = $2)
     `;
-    const params: any[] = [clean];
+    const params: any[] = [cleanUpper, clean];
 
     if (mobileNumber) {
       const cleanDigits = mobileNumber.replace(/\D/g, '').slice(-10);
-      sql += ` AND (customer->>'mobileNumber' LIKE '%' || $2)`;
+      sql += ` AND (customer->>'mobileNumber' LIKE '%' || $3)`;
       params.push(cleanDigits);
     }
 
@@ -728,15 +739,32 @@ class PostgresDatabaseManager {
       const orderId = `FP-2026-${Date.now().toString().slice(-4)}${randomSuffix.toString().slice(-2)}`;
       const invoiceNumber = `INV-FP-2026-${Date.now().toString().slice(-6)}`;
       const trackingNumber = `DEL-${Date.now().toString().slice(-7)}`;
+      const trackingToken = `tk_${crypto.randomBytes(12).toString('hex')}`;
+      const currentLocation = 'Fashion Point Central Fulfilment Hub, Indore';
+      const expectedDelivery = '3 - 5 Business Days';
+
+      const shippingAddr = (orderPayload.shippingAddress || {}) as any;
+      const shippingName = orderPayload.customer?.fullName || 'Customer';
+      const shippingPhone = orderPayload.customer?.mobileNumber || '';
+      const shippingAddressLine = [
+        shippingAddr.houseBuilding || shippingAddr.houseShopNo,
+        shippingAddr.streetArea || shippingAddr.street,
+        shippingAddr.landmark,
+        shippingAddr.villageTownCity || shippingAddr.villageArea
+      ].filter(Boolean).join(', ');
+      const shippingCity = shippingAddr.villageTownCity || shippingAddr.city || 'Indore';
+      const shippingDistrict = shippingAddr.district || 'Indore';
+      const shippingState = shippingAddr.state || 'Madhya Pradesh';
+      const shippingPincode = shippingAddr.pinCode || '452001';
 
       const initialTimelineEvent = {
-        status: 'NEW',
-        title: orderPayload.paymentMethod === 'COD' ? 'Order Placed (Cash on Delivery)' : 'Order Placed (Pending Payment Confirmation)',
+        status: 'ORDER_PLACED',
+        title: 'Order Placed',
         description: orderPayload.paymentMethod === 'COD'
-          ? `Order confirmed. Delivery partner will collect ₹${grandTotal} in cash at doorstep.`
+          ? `Order confirmed (Cash on Delivery). Delivery partner will collect ₹${grandTotal} in cash at doorstep.`
           : 'Payment transaction initiated via secure gateway.',
         timestamp: new Date().toISOString(),
-        location: 'Fashion Point Fulfilment Centre, Madhya Pradesh'
+        location: currentLocation
       };
 
       const pricing = {
@@ -756,24 +784,40 @@ class PostgresDatabaseManager {
       const insertRes = await client.query(
         `INSERT INTO orders (
           id, user_id, order_status, status, payment_method, payment_status, customer,
-          shipping_address, items, pricing, total_amount, tax_breakdown, courier_name,
+          shipping_address, shipping_name, shipping_phone, shipping_address_line,
+          shipping_city, shipping_district, shipping_state, shipping_pincode,
+          tracking_token, current_location, expected_delivery_date,
+          items, pricing, total_amount, tax_breakdown, courier_name,
           tracking_number, awb_number, invoice_number, estimated_delivery, timeline,
           customer_note, created_at, updated_at
         ) VALUES (
           $1, $2, $3, $4, $5, $6, $7,
-          $8, $9, $10, $11, $12, $13,
-          $14, $15, $16, $17, $18,
-          $19, NOW(), NOW()
+          $8, $9, $10, $11,
+          $12, $13, $14, $15,
+          $16, $17, $18,
+          $19, $20, $21, $22, $23,
+          $24, $25, $26, $27, $28,
+          $29, NOW(), NOW()
         ) RETURNING *`,
         [
           orderId,
           orderPayload.userId || null,
-          'NEW',
-          'NEW',
+          'ORDER_PLACED',
+          'ORDER_PLACED',
           orderPayload.paymentMethod,
           'PENDING',
           JSON.stringify(orderPayload.customer),
           JSON.stringify(orderPayload.shippingAddress),
+          shippingName,
+          shippingPhone,
+          shippingAddressLine,
+          shippingCity,
+          shippingDistrict,
+          shippingState,
+          shippingPincode,
+          trackingToken,
+          currentLocation,
+          expectedDelivery,
           JSON.stringify(verifiedItems),
           JSON.stringify(pricing),
           grandTotal,
@@ -782,9 +826,27 @@ class PostgresDatabaseManager {
           trackingNumber,
           trackingNumber,
           invoiceNumber,
-          '3 - 5 Business Days',
+          expectedDelivery,
           JSON.stringify([initialTimelineEvent]),
           orderPayload.customerNote || null
+        ]
+      );
+
+      // Also record in order_tracking_events
+      const trackingEventId = `trk-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+      await client.query(
+        `INSERT INTO order_tracking_events (
+          id, order_id, tracking_number, status, location, description, source, scanned_by, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+        [
+          trackingEventId,
+          orderId,
+          trackingNumber,
+          'ORDER_PLACED',
+          currentLocation,
+          orderPayload.paymentMethod === 'COD' ? 'Order Placed (Cash on Delivery)' : 'Order Placed',
+          'SYSTEM',
+          'SYSTEM'
         ]
       );
 
@@ -1207,6 +1269,421 @@ class PostgresDatabaseManager {
       ['default', JSON.stringify(merged)]
     );
     return merged;
+  }
+
+  // --- CUSTOMER PROFILE ---
+  public async getCustomerProfile(userId: string | number) {
+    await this.initDatabase();
+    const res = await this.pool.query(
+      `SELECT id, uid, email, phone as mobile, full_name as "fullName",
+              date_of_birth as "dateOfBirth", gender, role,
+              is_active as "isActive", created_at as "createdAt", updated_at as "updatedAt"
+       FROM users
+       WHERE id::text = $1 OR uid = $1
+       LIMIT 1`,
+      [String(userId)]
+    );
+    return res.rows[0] || null;
+  }
+
+  public async updateCustomerProfile(userId: string | number, data: {
+    fullName: string;
+    mobile: string;
+    email?: string;
+    dateOfBirth?: string;
+    gender?: string;
+  }) {
+    await this.initDatabase();
+    const res = await this.pool.query(
+      `UPDATE users
+       SET full_name = $1,
+           phone = $2,
+           email = $3,
+           date_of_birth = $4,
+           gender = $5,
+           updated_at = NOW()
+       WHERE id::text = $6 OR uid = $6
+       RETURNING id, uid, email, phone as mobile, full_name as "fullName",
+                 date_of_birth as "dateOfBirth", gender, role,
+                 is_active as "isActive", created_at as "createdAt", updated_at as "updatedAt"`,
+      [
+        data.fullName.trim(),
+        data.mobile.trim(),
+        data.email?.trim().toLowerCase() || null,
+        data.dateOfBirth?.trim() || null,
+        data.gender?.trim() || null,
+        String(userId)
+      ]
+    );
+    return res.rows[0] || null;
+  }
+
+  // --- CUSTOMER ADDRESSES ---
+  public async getCustomerAddresses(userId: string | number) {
+    await this.initDatabase();
+    const res = await this.pool.query(
+      `SELECT id, user_id as "userId", full_name as "fullName", mobile_number as "mobileNumber",
+              house_building as "houseBuilding", street_area as "streetArea",
+              village_town_city as "villageTownCity", post_office as "postOffice",
+              district, state, pin_code as "pinCode", landmark,
+              address_type as "addressType", is_default as "isDefault",
+              created_at as "createdAt", updated_at as "updatedAt"
+       FROM customer_addresses
+       WHERE user_id::text = $1
+       ORDER BY is_default DESC, created_at DESC`,
+      [String(userId)]
+    );
+    return res.rows;
+  }
+
+  public async createCustomerAddress(userId: string | number, addr: {
+    fullName: string;
+    mobileNumber: string;
+    houseBuilding: string;
+    streetArea: string;
+    villageTownCity: string;
+    postOffice?: string;
+    district: string;
+    state: string;
+    pinCode: string;
+    landmark?: string;
+    addressType?: string;
+    isDefault?: boolean;
+  }) {
+    await this.initDatabase();
+    const id = `addr-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+
+    // Check if user has any existing addresses
+    const countRes = await this.pool.query(
+      'SELECT count(*)::int as count FROM customer_addresses WHERE user_id::text = $1',
+      [String(userId)]
+    );
+    const shouldBeDefault = addr.isDefault || countRes.rows[0].count === 0;
+
+    if (shouldBeDefault) {
+      // Clear other defaults
+      await this.pool.query(
+        'UPDATE customer_addresses SET is_default = false, updated_at = NOW() WHERE user_id::text = $1',
+        [String(userId)]
+      );
+    }
+
+    const res = await this.pool.query(
+      `INSERT INTO customer_addresses (
+        id, user_id, full_name, mobile_number, house_building, street_area,
+        village_town_city, post_office, district, state, pin_code, landmark,
+        address_type, is_default, created_at, updated_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), NOW())
+      RETURNING id, user_id as "userId", full_name as "fullName", mobile_number as "mobileNumber",
+                house_building as "houseBuilding", street_area as "streetArea",
+                village_town_city as "villageTownCity", post_office as "postOffice",
+                district, state, pin_code as "pinCode", landmark,
+                address_type as "addressType", is_default as "isDefault",
+                created_at as "createdAt", updated_at as "updatedAt"`,
+      [
+        id,
+        Number(userId),
+        addr.fullName.trim(),
+        addr.mobileNumber.trim(),
+        addr.houseBuilding.trim(),
+        addr.streetArea.trim(),
+        addr.villageTownCity.trim(),
+        addr.postOffice?.trim() || null,
+        addr.district.trim(),
+        addr.state.trim(),
+        addr.pinCode.trim(),
+        addr.landmark?.trim() || null,
+        addr.addressType || 'HOME',
+        shouldBeDefault
+      ]
+    );
+
+    return res.rows[0];
+  }
+
+  public async updateCustomerAddress(addressId: string, userId: string | number, addr: {
+    fullName: string;
+    mobileNumber: string;
+    houseBuilding: string;
+    streetArea: string;
+    villageTownCity: string;
+    postOffice?: string;
+    district: string;
+    state: string;
+    pinCode: string;
+    landmark?: string;
+    addressType?: string;
+    isDefault?: boolean;
+  }) {
+    await this.initDatabase();
+
+    if (addr.isDefault) {
+      await this.pool.query(
+        'UPDATE customer_addresses SET is_default = false, updated_at = NOW() WHERE user_id::text = $1',
+        [String(userId)]
+      );
+    }
+
+    const res = await this.pool.query(
+      `UPDATE customer_addresses SET
+        full_name = $1,
+        mobile_number = $2,
+        house_building = $3,
+        street_area = $4,
+        village_town_city = $5,
+        post_office = $6,
+        district = $7,
+        state = $8,
+        pin_code = $9,
+        landmark = $10,
+        address_type = $11,
+        is_default = COALESCE($12, is_default),
+        updated_at = NOW()
+       WHERE id = $13 AND user_id::text = $14
+       RETURNING id, user_id as "userId", full_name as "fullName", mobile_number as "mobileNumber",
+                 house_building as "houseBuilding", street_area as "streetArea",
+                 village_town_city as "villageTownCity", post_office as "postOffice",
+                 district, state, pin_code as "pinCode", landmark,
+                 address_type as "addressType", is_default as "isDefault",
+                 created_at as "createdAt", updated_at as "updatedAt"`,
+      [
+        addr.fullName.trim(),
+        addr.mobileNumber.trim(),
+        addr.houseBuilding.trim(),
+        addr.streetArea.trim(),
+        addr.villageTownCity.trim(),
+        addr.postOffice?.trim() || null,
+        addr.district.trim(),
+        addr.state.trim(),
+        addr.pinCode.trim(),
+        addr.landmark?.trim() || null,
+        addr.addressType || 'HOME',
+        addr.isDefault !== undefined ? addr.isDefault : null,
+        addressId,
+        String(userId)
+      ]
+    );
+
+    return res.rows[0] || null;
+  }
+
+  public async deleteCustomerAddress(addressId: string, userId: string | number) {
+    await this.initDatabase();
+    const res = await this.pool.query(
+      'DELETE FROM customer_addresses WHERE id = $1 AND user_id::text = $2 RETURNING is_default',
+      [addressId, String(userId)]
+    );
+    if ((res.rowCount ?? 0) > 0 && res.rows[0]?.is_default) {
+      // Pick another address to become default if available
+      await this.pool.query(
+        `UPDATE customer_addresses
+         SET is_default = true, updated_at = NOW()
+         WHERE id = (SELECT id FROM customer_addresses WHERE user_id::text = $1 ORDER BY created_at DESC LIMIT 1)`,
+        [String(userId)]
+      );
+    }
+    return (res.rowCount ?? 0) > 0;
+  }
+
+  public async setDefaultCustomerAddress(addressId: string, userId: string | number) {
+    await this.initDatabase();
+    await this.pool.query(
+      'UPDATE customer_addresses SET is_default = false, updated_at = NOW() WHERE user_id::text = $1',
+      [String(userId)]
+    );
+    const res = await this.pool.query(
+      'UPDATE customer_addresses SET is_default = true, updated_at = NOW() WHERE id = $1 AND user_id::text = $2 RETURNING id',
+      [addressId, String(userId)]
+    );
+    return (res.rowCount ?? 0) > 0;
+  }
+
+  // --- POSTAL CODES ---
+  public async lookupPostalCode(pincode: string) {
+    await this.initDatabase();
+    const clean = pincode.replace(/\D/g, '');
+    const res = await this.pool.query(
+      `SELECT id, pincode, post_office as "postOffice", district, state, city
+       FROM postal_codes
+       WHERE pincode = $1
+       ORDER BY post_office ASC`,
+      [clean]
+    );
+    return res.rows;
+  }
+
+  // --- CUSTOMER ORDERS ---
+  public async getCustomerOrders(userId: string | number, mobile?: string, email?: string) {
+    await this.initDatabase();
+    let sql = 'SELECT * FROM orders WHERE user_id::text = $1';
+    const params: any[] = [String(userId)];
+
+    if (mobile || email) {
+      const orClauses: string[] = [];
+      if (mobile) {
+        params.push(mobile.replace(/\D/g, '').slice(-10));
+        orClauses.push(`customer->>'mobileNumber' LIKE '%' || $${params.length}`);
+      }
+      if (email) {
+        params.push(email.trim().toLowerCase());
+        orClauses.push(`LOWER(customer->>'email') = $${params.length}`);
+      }
+      if (orClauses.length > 0) {
+        sql = `SELECT * FROM orders WHERE (user_id::text = $1 OR ${orClauses.join(' OR ')})`;
+      }
+    }
+
+    sql += ' ORDER BY created_at DESC';
+    const res = await this.pool.query(sql, params);
+    return res.rows.map(mapOrderRow);
+  }
+
+  // --- ORDER TRACKING & QR EVENTS ---
+  public async getOrderByTrackingToken(tokenOrTracking: string) {
+    await this.initDatabase();
+    const clean = tokenOrTracking.trim();
+    const res = await this.pool.query(
+      `SELECT * FROM orders
+       WHERE tracking_token = $1
+          OR UPPER(tracking_number) = UPPER($1)
+          OR UPPER(id) = UPPER($1)
+       LIMIT 1`,
+      [clean]
+    );
+    return mapOrderRow(res.rows[0]);
+  }
+
+  public async getOrderTrackingEvents(orderId: string) {
+    await this.initDatabase();
+    const res = await this.pool.query(
+      `SELECT id, order_id as "orderId", tracking_number as "trackingNumber",
+              status, location, description, source, scanned_by as "scannedBy",
+              created_at as "createdAt"
+       FROM order_tracking_events
+       WHERE order_id = $1
+       ORDER BY created_at ASC`,
+      [orderId]
+    );
+    return res.rows;
+  }
+
+  public async addOrderTrackingEvent(payload: {
+    orderId: string;
+    status: string;
+    location?: string;
+    description: string;
+    source?: 'ADMIN' | 'COURIER' | 'WAREHOUSE' | 'SYSTEM';
+    scannedBy?: string;
+    courierName?: string;
+    awbNumber?: string;
+  }) {
+    await this.initDatabase();
+    const order = await this.getOrderById(payload.orderId);
+    if (!order) return null;
+
+    const eventId = `trk-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+    const upperStatus = payload.status.toUpperCase();
+    const trackingNum = payload.awbNumber || order.trackingNumber || `DEL-${Date.now().toString().slice(-7)}`;
+
+    // Insert into order_tracking_events
+    await this.pool.query(
+      `INSERT INTO order_tracking_events (
+        id, order_id, tracking_number, status, location, description, source, scanned_by, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
+      [
+        eventId,
+        order.id,
+        trackingNum,
+        upperStatus,
+        payload.location || null,
+        payload.description,
+        payload.source || 'ADMIN',
+        payload.scannedBy || 'STAFF'
+      ]
+    );
+
+    // Update order status, location, courier, timeline
+    const newTimelineItem = {
+      status: upperStatus,
+      title: upperStatus.replace(/_/g, ' '),
+      description: payload.description,
+      location: payload.location,
+      timestamp: new Date().toISOString()
+    };
+
+    const updatedTimeline = [...(order.timeline || []), newTimelineItem];
+    let paymentStatus = order.paymentStatus;
+    if (upperStatus === 'DELIVERED') {
+      paymentStatus = 'PAID';
+    } else if (upperStatus === 'CANCELLED' && order.paymentMethod === 'ONLINE' && order.paymentStatus === 'PAID') {
+      paymentStatus = 'REFUNDED';
+    } else if (upperStatus === 'REFUNDED') {
+      paymentStatus = 'REFUNDED';
+    }
+
+    const res = await this.pool.query(
+      `UPDATE orders SET
+        order_status = $1,
+        status = $1,
+        payment_status = $2,
+        current_location = COALESCE($3, current_location),
+        courier_name = COALESCE($4, courier_name),
+        awb_number = COALESCE($5, awb_number),
+        tracking_number = COALESCE($5, tracking_number),
+        timeline = $6,
+        updated_at = NOW()
+       WHERE id = $7
+       RETURNING *`,
+      [
+        upperStatus,
+        paymentStatus,
+        payload.location || null,
+        payload.courierName || null,
+        payload.awbNumber || null,
+        JSON.stringify(updatedTimeline),
+        order.id
+      ]
+    );
+
+    return {
+      order: mapOrderRow(res.rows[0]),
+      event: {
+        id: eventId,
+        orderId: order.id,
+        trackingNumber: trackingNum,
+        status: upperStatus,
+        location: payload.location,
+        description: payload.description,
+        source: payload.source || 'ADMIN',
+        scannedBy: payload.scannedBy,
+        createdAt: new Date().toISOString()
+      }
+    };
+  }
+
+  public async recordQrScan(payload: {
+    orderId: string;
+    trackingNumber: string;
+    scannedBy?: string;
+    scannerType: 'CUSTOMER' | 'ADMIN' | 'STAFF' | 'COURIER';
+    location?: string;
+  }) {
+    await this.initDatabase();
+    const id = `scan-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
+    await this.pool.query(
+      `INSERT INTO qr_scan_events (
+        id, order_id, tracking_number, scanned_by, scanner_type, location, created_at
+      ) VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+      [
+        id,
+        payload.orderId,
+        payload.trackingNumber,
+        payload.scannedBy || null,
+        payload.scannerType,
+        payload.location || null
+      ]
+    );
+    return id;
   }
 }
 

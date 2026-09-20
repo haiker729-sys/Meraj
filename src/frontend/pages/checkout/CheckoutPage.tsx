@@ -1,10 +1,21 @@
-import React, { useState } from 'react';
-import { CartItem, CustomerDetails, ShippingAddress, Order } from '../../../types';
+import React, { useState, useEffect } from 'react';
+import { CartItem, CustomerDetails, ShippingAddress, Order, CustomerAddress } from '../../../types';
 import { cartManager } from '../../../utils/cartManager';
 import { apiClient } from '../../../api/client';
 import { paymentService } from '../../../backend/services/paymentService';
 import { notificationService } from '../../../backend/services/notificationService';
-import { ShieldCheck, Truck, CreditCard, ArrowLeft, CheckCircle2, Lock } from 'lucide-react';
+import {
+  ShieldCheck,
+  Truck,
+  CreditCard,
+  ArrowLeft,
+  CheckCircle2,
+  Lock,
+  MapPin,
+  Plus,
+  AlertCircle,
+  Loader2
+} from 'lucide-react';
 
 interface CheckoutPageProps {
   cartItems: CartItem[];
@@ -48,6 +59,17 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
     landmark: ''
   });
 
+  const [postOffice, setPostOffice] = useState('');
+  const [postOfficesList, setPostOfficesList] = useState<string[]>([]);
+  const [pinLookupLoading, setPinLookupLoading] = useState(false);
+  const [pinLookupMessage, setPinLookupMessage] = useState<{ type: 'success' | 'warn'; text: string } | null>(null);
+
+  // Saved addresses
+  const [savedAddresses, setSavedAddresses] = useState<CustomerAddress[]>([]);
+  const [selectedAddressId, setSelectedAddressId] = useState<string | 'NEW'>('NEW');
+  const [saveAddressToAccount, setSaveAddressToAccount] = useState(false);
+  const [isCustomerLoggedIn, setIsCustomerLoggedIn] = useState(false);
+
   const [paymentMethod, setPaymentMethod] = useState<'COD' | 'ONLINE'>('COD');
   const [couponCode, setCouponCode] = useState('');
   const [appliedCouponDiscount, setAppliedCouponDiscount] = useState(0);
@@ -61,6 +83,112 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
   );
   const deliveryCharge = subtotal >= 999 ? 0 : 49;
   const grandTotal = Math.max(0, subtotal + deliveryCharge - appliedCouponDiscount);
+
+  // Load Customer Profile & Saved Addresses on Mount
+  useEffect(() => {
+    let isCancelled = false;
+
+    apiClient.customer
+      .getProfile()
+      .then((res) => {
+        if (!isCancelled && res?.profile) {
+          setIsCustomerLoggedIn(true);
+          setCustomer((prev) => ({
+            ...prev,
+            fullName: prev.fullName || res.profile.fullName || '',
+            mobileNumber: prev.mobileNumber || res.profile.mobile || '',
+            email: prev.email || res.profile.email || ''
+          }));
+        }
+      })
+      .catch(() => {});
+
+    apiClient.customer
+      .getAddresses()
+      .then((res) => {
+        if (!isCancelled && res?.addresses && res.addresses.length > 0) {
+          setSavedAddresses(res.addresses);
+          const defaultAddr = res.addresses.find((a) => a.isDefault) || res.addresses[0];
+          if (defaultAddr) {
+            setSelectedAddressId(defaultAddr.id);
+            applySavedAddress(defaultAddr);
+          }
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
+  const applySavedAddress = (addr: CustomerAddress) => {
+    setAddress({
+      houseShopNo: addr.houseBuilding,
+      street: addr.streetArea,
+      villageArea: addr.villageTownCity,
+      city: addr.villageTownCity,
+      district: addr.district,
+      state: addr.state,
+      pinCode: addr.pinCode,
+      landmark: addr.landmark || ''
+    });
+    setPostOffice(addr.postOffice || '');
+    if (addr.fullName) {
+      setCustomer((prev) => ({
+        ...prev,
+        fullName: prev.fullName || addr.fullName,
+        mobileNumber: prev.mobileNumber || addr.mobileNumber
+      }));
+    }
+  };
+
+  // PIN Code lookup logic
+  const handlePincodeChange = async (val: string) => {
+    const cleaned = val.replace(/\D/g, '').slice(0, 6);
+    setAddress((prev) => ({ ...prev, pinCode: cleaned }));
+
+    if (cleaned.length === 6) {
+      setPinLookupLoading(true);
+      setPinLookupMessage(null);
+      try {
+        const res = await apiClient.postal.lookupPincode(cleaned);
+        if (res.found) {
+          setPostOfficesList(res.postOffices || []);
+          setAddress((prev) => ({
+            ...prev,
+            district: res.district || prev.district,
+            state: res.state || prev.state,
+            city: res.city || prev.city,
+            villageArea: prev.villageArea || res.city
+          }));
+          if (res.postOffices && res.postOffices.length > 0) {
+            setPostOffice(res.postOffices[0]);
+          }
+          setPinLookupMessage({
+            type: 'success',
+            text: `Verified PIN code: ${res.district}, ${res.state}`
+          });
+        } else {
+          setPostOfficesList([]);
+          setPinLookupMessage({
+            type: 'warn',
+            text: 'PIN code not found. Please enter address manually.'
+          });
+        }
+      } catch {
+        setPinLookupMessage({
+          type: 'warn',
+          text: 'PIN code lookup unavailable. Please enter address details manually.'
+        });
+      } finally {
+        setPinLookupLoading(false);
+      }
+    } else {
+      setPostOfficesList([]);
+      setPinLookupMessage(null);
+    }
+  };
 
   // Validate required inputs
   const validateForm = (): boolean => {
@@ -113,10 +241,25 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
     setIsProcessing(true);
 
     try {
-      // 1. Transactional Order Creation via Backend in PostgreSQL (Strictly no local fallback)
+      // Build full snapshot address string
+      const fullAddressLine = `${address.houseShopNo}, ${address.street}, ${address.villageArea}${
+        postOffice ? ', PO: ' + postOffice : ''
+      }${address.landmark ? ', Landmark: ' + address.landmark : ''}`;
+
+      // 1. Transactional Order Creation via Backend in PostgreSQL
       const orderPayload = {
         customer,
-        shippingAddress: address,
+        shippingAddress: {
+          ...address,
+          postOffice
+        },
+        shippingName: customer.fullName,
+        shippingPhone: customer.mobileNumber,
+        shippingAddressLine: fullAddressLine,
+        shippingCity: address.city,
+        shippingDistrict: address.district,
+        shippingState: address.state,
+        shippingPincode: address.pinCode,
         items: cartItems.map((ci) => ({
           productId: ci.productId,
           quantity: ci.quantity,
@@ -130,6 +273,26 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
       const res = await apiClient.orders.create(orderPayload);
       const newOrder: Order = res.order;
       cartManager.clearCart();
+
+      // Optionally save address to customer account
+      if (saveAddressToAccount && selectedAddressId === 'NEW' && isCustomerLoggedIn) {
+        apiClient.customer
+          .createAddress({
+            fullName: customer.fullName,
+            mobileNumber: customer.mobileNumber,
+            houseBuilding: address.houseShopNo,
+            streetArea: address.street,
+            villageTownCity: address.villageArea || address.city,
+            postOffice: postOffice,
+            district: address.district,
+            state: address.state,
+            pinCode: address.pinCode,
+            landmark: address.landmark,
+            addressType: 'HOME',
+            isDefault: savedAddresses.length === 0
+          })
+          .catch(() => {});
+      }
 
       // 2. Handle Payment Verification if ONLINE
       if (paymentMethod === 'ONLINE') {
@@ -150,10 +313,12 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
               setPaymentMethod('COD');
               newOrder.paymentMethod = 'COD';
               newOrder.paymentStatus = 'PENDING';
-              await apiClient.orders.updateStatus(newOrder.id, {
-                status: 'NEW',
-                note: 'Switched to Cash on Delivery (COD)'
-              }).catch(() => {});
+              await apiClient.orders
+                .updateStatus(newOrder.id, {
+                  status: 'NEW',
+                  note: 'Switched to Cash on Delivery (COD)'
+                })
+                .catch(() => {});
             } else {
               setIsProcessing(false);
               return;
@@ -186,15 +351,16 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
 
   if (cartItems.length === 0) {
     return (
-      <div className="min-h-screen bg-neutral-50 flex items-center justify-center p-6">
-        <div className="bg-white p-8 rounded-2xl border border-neutral-200 text-center max-w-sm">
-          <h2 className="text-lg font-bold text-neutral-900">Your bag is empty</h2>
-          <p className="text-xs text-neutral-500 mt-1 mb-6">Add clothes to your cart before proceeding to checkout.</p>
+      <div className="min-h-screen bg-neutral-50 flex items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-3xl border border-neutral-200 text-center max-w-sm shadow-xs">
+          <Truck className="w-12 h-12 text-neutral-400 mx-auto mb-3" />
+          <h2 className="text-base font-bold text-neutral-900">Your shopping bag is empty</h2>
+          <p className="text-xs text-neutral-500 mt-1">Explore our collections and add items to checkout.</p>
           <button
             onClick={() => onNavigate('/products')}
-            className="w-full py-3 bg-black text-white text-xs font-bold rounded-xl"
+            className="mt-5 w-full py-2.5 bg-black text-white text-xs font-bold rounded-xl hover:bg-neutral-800"
           >
-            Start Shopping
+            Shop Apparel
           </button>
         </div>
       </div>
@@ -316,7 +482,121 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
                   <span className="text-[11px] text-neutral-400">Step 2 of 3</span>
                 </div>
 
+                {/* Multiple Saved Address Selector */}
+                {savedAddresses.length > 0 && (
+                  <div className="mb-5 pb-5 border-b border-neutral-100">
+                    <p className="text-xs font-bold text-neutral-700 uppercase tracking-wider mb-2">
+                      Choose Saved Address
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {savedAddresses.map((sa) => (
+                        <div
+                          key={sa.id}
+                          onClick={() => {
+                            setSelectedAddressId(sa.id);
+                            applySavedAddress(sa);
+                          }}
+                          className={`p-3.5 rounded-xl border text-xs cursor-pointer transition-all ${
+                            selectedAddressId === sa.id
+                              ? 'border-black bg-neutral-50/80 ring-2 ring-black/10'
+                              : 'border-neutral-200 hover:border-neutral-300'
+                          }`}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-bold text-neutral-900">{sa.fullName}</span>
+                            <div className="flex gap-1">
+                              <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-neutral-200 text-neutral-700">
+                                {sa.addressType || 'HOME'}
+                              </span>
+                              {sa.isDefault && (
+                                <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-black text-white">
+                                  Default
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <p className="text-neutral-600 text-[11px] leading-snug">
+                            {sa.houseBuilding}, {sa.streetArea}, {sa.villageTownCity}
+                          </p>
+                          <p className="text-neutral-900 font-semibold text-[11px] mt-1 font-mono">
+                            {sa.district}, {sa.state} - {sa.pinCode}
+                          </p>
+                        </div>
+                      ))}
+
+                      {/* Option to enter a new address */}
+                      <div
+                        onClick={() => {
+                          setSelectedAddressId('NEW');
+                          setAddress({
+                            houseShopNo: '',
+                            street: '',
+                            villageArea: '',
+                            city: '',
+                            district: '',
+                            state: 'Madhya Pradesh',
+                            pinCode: '',
+                            landmark: ''
+                          });
+                          setPostOffice('');
+                        }}
+                        className={`p-3.5 rounded-xl border-2 border-dashed flex items-center justify-center gap-2 cursor-pointer transition-all ${
+                          selectedAddressId === 'NEW'
+                            ? 'border-black bg-neutral-50 text-black'
+                            : 'border-neutral-300 text-neutral-600 hover:border-neutral-400'
+                        }`}
+                      >
+                        <Plus className="w-4 h-4" />
+                        <span className="text-xs font-bold">+ Enter Different Address</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Address Input Form */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                  {/* PIN code input with instant local lookup */}
+                  <div className="sm:col-span-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block font-semibold text-neutral-700">
+                        PIN Code <span className="text-rose-600">*</span>
+                      </label>
+                      {pinLookupLoading && (
+                        <span className="text-[11px] text-neutral-500 flex items-center gap-1 font-medium">
+                          <Loader2 className="w-3 h-3 animate-spin" /> Verifying postal dataset...
+                        </span>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      maxLength={6}
+                      value={address.pinCode}
+                      onChange={(e) => handlePincodeChange(e.target.value)}
+                      placeholder="6-digit PIN (e.g. 452001, 110001, 400001)"
+                      className={`w-full px-3 py-2 border rounded-xl focus:outline-hidden focus:border-black font-mono ${
+                        errors.pinCode ? 'border-rose-500' : 'border-neutral-300'
+                      }`}
+                    />
+                    {errors.pinCode && <p className="text-[10px] text-rose-600 mt-1">{errors.pinCode}</p>}
+
+                    {pinLookupMessage && (
+                      <div
+                        className={`mt-1.5 px-3 py-1.5 rounded-lg flex items-center gap-1.5 text-[11px] font-medium ${
+                          pinLookupMessage.type === 'success'
+                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                            : 'bg-amber-50 text-amber-900 border border-amber-200'
+                        }`}
+                      >
+                        {pinLookupMessage.type === 'success' ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        ) : (
+                          <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        )}
+                        <span>{pinLookupMessage.text}</span>
+                      </div>
+                    )}
+                  </div>
+
                   <div>
                     <label className="block font-semibold text-neutral-700 mb-1">
                       House / Flat / Shop No. <span className="text-rose-600">*</span>
@@ -351,7 +631,7 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
                     {errors.street && <p className="text-[10px] text-rose-600 mt-1">{errors.street}</p>}
                   </div>
 
-                  <div className="sm:col-span-2">
+                  <div>
                     <label className="block font-semibold text-neutral-700 mb-1">
                       Village / Area / Colony <span className="text-rose-600">*</span>
                     </label>
@@ -366,6 +646,34 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
                     />
                     {errors.villageArea && (
                       <p className="text-[10px] text-rose-600 mt-1">{errors.villageArea}</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-neutral-700 mb-1">
+                      Post Office (Optional)
+                    </label>
+                    {postOfficesList.length > 0 ? (
+                      <select
+                        value={postOffice}
+                        onChange={(e) => setPostOffice(e.target.value)}
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-xl focus:outline-hidden focus:border-black bg-white"
+                      >
+                        <option value="">Select Post Office</option>
+                        {postOfficesList.map((po) => (
+                          <option key={po} value={po}>
+                            {po}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={postOffice}
+                        onChange={(e) => setPostOffice(e.target.value)}
+                        placeholder="e.g. Head Post Office"
+                        className="w-full px-3 py-2 border border-neutral-300 rounded-xl focus:outline-hidden focus:border-black"
+                      />
                     )}
                   </div>
 
@@ -417,35 +725,33 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
 
                   <div>
                     <label className="block font-semibold text-neutral-700 mb-1">
-                      PIN Code <span className="text-rose-600">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      maxLength={6}
-                      value={address.pinCode}
-                      onChange={(e) =>
-                        setAddress({ ...address, pinCode: e.target.value.replace(/\D/g, '') })
-                      }
-                      placeholder="6-digit PIN"
-                      className={`w-full px-3 py-2 border rounded-xl focus:outline-hidden focus:border-black font-mono ${
-                        errors.pinCode ? 'border-rose-500' : 'border-neutral-300'
-                      }`}
-                    />
-                    {errors.pinCode && <p className="text-[10px] text-rose-600 mt-1">{errors.pinCode}</p>}
-                  </div>
-
-                  <div className="sm:col-span-2">
-                    <label className="block font-semibold text-neutral-700 mb-1">
                       Nearby Landmark (Optional)
                     </label>
                     <input
                       type="text"
                       value={address.landmark}
                       onChange={(e) => setAddress({ ...address, landmark: e.target.value })}
-                      placeholder="e.g. Behind Hanuman Temple, Near Govt Hospital"
+                      placeholder="e.g. Near Govt Hospital"
                       className="w-full px-3 py-2 border border-neutral-300 rounded-xl focus:outline-hidden focus:border-black"
                     />
                   </div>
+
+                  {/* Save address to account checkbox */}
+                  {selectedAddressId === 'NEW' && isCustomerLoggedIn && (
+                    <div className="sm:col-span-2 pt-2">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={saveAddressToAccount}
+                          onChange={(e) => setSaveAddressToAccount(e.target.checked)}
+                          className="w-4 h-4 rounded-md border-neutral-300 text-black focus:ring-black"
+                        />
+                        <span className="font-semibold text-neutral-800 text-xs">
+                          Save this delivery address to my account for future orders
+                        </span>
+                      </label>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -552,73 +858,87 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
                   ))}
                 </div>
 
-                {/* Promo Code Input in Summary */}
+                {/* Coupon Code input */}
                 <div className="mt-4 pt-4 border-t border-neutral-100">
                   <div className="flex gap-2">
                     <input
                       type="text"
                       value={couponCode}
                       onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-                      placeholder="Promo code (e.g. FIRST10)"
-                      className="flex-1 px-3 py-1.5 text-xs uppercase border border-neutral-300 rounded-lg focus:outline-hidden focus:border-black font-mono"
+                      placeholder="Coupon (e.g. FASHION10)"
+                      className="flex-1 px-3 py-2 border border-neutral-300 rounded-xl text-xs uppercase font-mono focus:border-black focus:outline-hidden"
                     />
                     <button
                       type="button"
                       onClick={handleApplyCoupon}
-                      className="px-3 py-1.5 bg-neutral-900 hover:bg-black text-white text-xs font-bold rounded-lg"
+                      className="px-3.5 py-2 bg-neutral-100 hover:bg-neutral-200 text-black rounded-xl text-xs font-bold transition-colors"
                     >
                       Apply
                     </button>
                   </div>
                   {couponMessage && (
-                    <p className="text-[11px] text-emerald-700 font-medium mt-1">
+                    <p
+                      className={`text-[11px] mt-1.5 font-medium ${
+                        appliedCouponDiscount > 0 ? 'text-emerald-600' : 'text-rose-600'
+                      }`}
+                    >
                       {couponMessage}
                     </p>
                   )}
                 </div>
 
                 {/* Price Breakdown */}
-                <div className="mt-4 pt-4 border-t border-neutral-100 space-y-2 text-xs text-neutral-600">
-                  <div className="flex justify-between">
-                    <span>Subtotal</span>
-                    <span className="font-mono text-neutral-900 font-medium">₹{subtotal.toLocaleString('en-IN')}</span>
+                <div className="mt-4 pt-4 border-t border-neutral-100 space-y-2 text-xs">
+                  <div className="flex justify-between text-neutral-600">
+                    <span>Items Subtotal</span>
+                    <span className="font-mono font-semibold">₹{subtotal.toLocaleString('en-IN')}</span>
                   </div>
-                  {appliedCouponDiscount > 0 && (
-                    <div className="flex justify-between text-emerald-700 font-semibold">
-                      <span>Discount</span>
-                      <span className="font-mono">-₹{appliedCouponDiscount.toLocaleString('en-IN')}</span>
-                    </div>
-                  )}
-                  <div className="flex justify-between">
-                    <span>Shipping Charges</span>
-                    <span className="font-mono">
+
+                  <div className="flex justify-between text-neutral-600">
+                    <span>Delivery Charges</span>
+                    <span className="font-mono font-semibold">
                       {deliveryCharge === 0 ? (
-                        <span className="text-emerald-700 font-bold uppercase">FREE</span>
+                        <span className="text-emerald-600 font-bold uppercase text-[10px]">Free</span>
                       ) : (
                         `₹${deliveryCharge}`
                       )}
                     </span>
                   </div>
-                  <div className="flex justify-between text-base font-black text-neutral-950 pt-3 border-t border-neutral-200">
-                    <span>Grand Total</span>
-                    <span className="font-mono">₹{grandTotal.toLocaleString('en-IN')}</span>
+
+                  {appliedCouponDiscount > 0 && (
+                    <div className="flex justify-between text-emerald-600 font-medium">
+                      <span>Promotional Discount</span>
+                      <span className="font-mono font-bold">-₹{appliedCouponDiscount.toLocaleString('en-IN')}</span>
+                    </div>
+                  )}
+
+                  <div className="pt-3 border-t border-neutral-100 flex justify-between items-baseline">
+                    <span className="text-sm font-bold text-neutral-900">Grand Total</span>
+                    <span className="font-mono text-xl font-black text-neutral-900">
+                      ₹{grandTotal.toLocaleString('en-IN')}
+                    </span>
                   </div>
                 </div>
 
-                {/* Primary Place Order Action */}
-                <div className="mt-6">
-                  <button
-                    type="submit"
-                    disabled={isProcessing}
-                    className="w-full py-4 bg-black hover:bg-neutral-800 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg transition-all active:scale-98 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
-                  >
-                    <Lock className="w-4 h-4" />
-                    <span>{isProcessing ? 'Processing Order...' : 'PLACE ORDER'}</span>
-                  </button>
-                  <p className="text-center text-[10px] text-neutral-400 mt-2 flex items-center justify-center gap-1">
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                    <span>Safe & encrypted checkout • Fashion Point Guarantee</span>
-                  </p>
+                {/* Place Order CTA Button */}
+                <button
+                  type="submit"
+                  disabled={isProcessing}
+                  className="mt-6 w-full py-3.5 bg-black hover:bg-neutral-800 active:scale-98 text-white rounded-xl text-xs uppercase font-bold tracking-wider transition-all shadow-lg flex items-center justify-center gap-2"
+                >
+                  <Lock className="w-4 h-4 text-emerald-400" />
+                  <span>
+                    {isProcessing
+                      ? 'Creating Order in Database...'
+                      : paymentMethod === 'COD'
+                      ? `Place Order (Pay ₹${grandTotal} on Delivery)`
+                      : `Proceed to Pay ₹${grandTotal}`}
+                  </span>
+                </button>
+
+                <div className="mt-4 flex items-center justify-center gap-2 text-[10px] text-neutral-400 font-medium">
+                  <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Verified 256-Bit SSL Secured Transaction</span>
                 </div>
               </div>
             </div>

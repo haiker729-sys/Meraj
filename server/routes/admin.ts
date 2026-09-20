@@ -156,4 +156,180 @@ router.delete('/users/:id', async (req: Request, res: Response) => {
   }
 });
 
+const ALLOWED_STATUSES = [
+  'ORDER_PLACED',
+  'PAYMENT_PENDING',
+  'PAYMENT_CONFIRMED',
+  'PROCESSING',
+  'PACKED',
+  'READY_TO_SHIP',
+  'SHIPPED',
+  'IN_TRANSIT',
+  'ARRIVED_AT_FACILITY',
+  'OUT_FOR_DELIVERY',
+  'DELIVERED',
+  'CANCELLED',
+  'RETURN_REQUESTED',
+  'RETURNED',
+  'REFUNDED'
+];
+
+/**
+ * Admin: Update Order Tracking Event
+ * POST /api/admin/orders/:id/tracking
+ */
+router.post('/orders/:id/tracking', async (req: Request, res: Response) => {
+  try {
+    const orderId = req.params.id;
+    const { status, location, description, courierName, awbNumber } = req.body;
+    const adminUser = (req as any).user;
+
+    if (!status) {
+      res.status(400).json({ success: false, error: 'Status is required.' });
+      return;
+    }
+
+    const upperStatus = status.toUpperCase();
+    if (!ALLOWED_STATUSES.includes(upperStatus)) {
+      res.status(400).json({
+        success: false,
+        error: `Invalid status. Must be one of: ${ALLOWED_STATUSES.join(', ')}`
+      });
+      return;
+    }
+
+    if (!description || !description.trim()) {
+      res.status(400).json({ success: false, error: 'Event description / update note is required.' });
+      return;
+    }
+
+    const result = await db.addOrderTrackingEvent({
+      orderId,
+      status: upperStatus,
+      location: location?.trim() || undefined,
+      description: description.trim(),
+      source: 'ADMIN',
+      scannedBy: adminUser?.username || adminUser?.fullName || 'STORE_ADMIN',
+      courierName: courierName?.trim() || undefined,
+      awbNumber: awbNumber?.trim() || undefined
+    });
+
+    if (!result) {
+      res.status(404).json({ success: false, error: 'Order not found.' });
+      return;
+    }
+
+    res.json({
+      success: true,
+      message: `Order status updated to ${upperStatus}.`,
+      order: result.order,
+      event: result.event
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || 'Failed to update tracking.' });
+  }
+});
+
+/**
+ * Admin: Lookup Order via QR Code Token
+ * GET /api/admin/tracking/scan/:token
+ */
+router.get('/tracking/scan/:token', async (req: Request, res: Response) => {
+  try {
+    const { token } = req.params;
+    const order = await db.getOrderByTrackingToken(token);
+
+    if (!order) {
+      res.status(404).json({
+        success: false,
+        error: 'No parcel found matching this QR code tracking token.'
+      });
+      return;
+    }
+
+    const trackingEvents = await db.getOrderTrackingEvents(order.id);
+
+    res.json({
+      success: true,
+      order,
+      trackingEvents
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || 'Server error.' });
+  }
+});
+
+/**
+ * Admin: Submit QR Scanner Tracking Event
+ * POST /api/admin/tracking/scan
+ */
+router.post('/tracking/scan', async (req: Request, res: Response) => {
+  try {
+    const { token, status, location, description, courierName, awbNumber } = req.body;
+    const adminUser = (req as any).user;
+
+    if (!token) {
+      res.status(400).json({ success: false, error: 'Tracking token or QR payload is required.' });
+      return;
+    }
+
+    const order = await db.getOrderByTrackingToken(token);
+    if (!order) {
+      res.status(404).json({ success: false, error: 'No parcel found matching this QR token.' });
+      return;
+    }
+
+    // Record the scanner audit event
+    await db.recordQrScan({
+      orderId: order.id,
+      trackingNumber: order.trackingNumber,
+      scannedBy: adminUser?.username || adminUser?.fullName || 'STAFF_SCANNER',
+      scannerType: 'ADMIN',
+      location: location || order.currentLocation
+    });
+
+    // If an update is supplied, record the new tracking event
+    if (status) {
+      const upperStatus = status.toUpperCase();
+      if (!ALLOWED_STATUSES.includes(upperStatus)) {
+        res.status(400).json({
+          success: false,
+          error: `Invalid status. Must be one of: ${ALLOWED_STATUSES.join(', ')}`
+        });
+        return;
+      }
+
+      const result = await db.addOrderTrackingEvent({
+        orderId: order.id,
+        status: upperStatus,
+        location: location?.trim() || undefined,
+        description: description?.trim() || `Parcel scanned and status marked as ${upperStatus}.`,
+        source: 'WAREHOUSE',
+        scannedBy: adminUser?.username || adminUser?.fullName || 'STAFF_SCANNER',
+        courierName: courierName?.trim() || undefined,
+        awbNumber: awbNumber?.trim() || undefined
+      });
+
+      res.json({
+        success: true,
+        message: `Parcel scanned and status updated to ${upperStatus}.`,
+        order: result?.order,
+        event: result?.event
+      });
+      return;
+    }
+
+    // Just lookup + recorded scan
+    const trackingEvents = await db.getOrderTrackingEvents(order.id);
+    res.json({
+      success: true,
+      message: 'Parcel scanned successfully.',
+      order,
+      trackingEvents
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || 'Scan update failed.' });
+  }
+});
+
 export default router;

@@ -8,8 +8,11 @@ export const users = pgTable('users', {
   passwordHash: text('password_hash'),
   fullName: text('full_name'),
   role: text('role').default('CUSTOMER'),
+  dateOfBirth: text('date_of_birth'),
+  gender: text('gender'),
   isActive: boolean('is_active').default(true),
   createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
 });
 
 export const admins = pgTable('admins', {
@@ -75,6 +78,36 @@ export const coupons = pgTable('coupons', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
+export const customerAddresses = pgTable('customer_addresses', {
+  id: text('id').primaryKey(),
+  userId: integer('user_id').references(() => users.id, { onDelete: 'cascade' }),
+  fullName: text('full_name').notNull(),
+  mobileNumber: text('mobile_number').notNull(),
+  houseBuilding: text('house_building').notNull(),
+  streetArea: text('street_area').notNull(),
+  villageTownCity: text('village_town_city').notNull(),
+  postOffice: text('post_office'),
+  district: text('district').notNull(),
+  state: text('state').notNull(),
+  pinCode: text('pin_code').notNull(),
+  landmark: text('landmark'),
+  addressType: text('address_type').notNull().default('HOME'),
+  isDefault: boolean('is_default').default(false),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const postalCodes = pgTable('postal_codes', {
+  id: text('id').primaryKey(),
+  pincode: text('pincode').notNull(),
+  postOffice: text('post_office').notNull(),
+  district: text('district').notNull(),
+  state: text('state').notNull(),
+  city: text('city'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
 export const orders = pgTable('orders', {
   id: text('id').primaryKey(),
   userId: text('user_id'),
@@ -84,6 +117,16 @@ export const orders = pgTable('orders', {
   paymentStatus: text('payment_status').notNull().default('PENDING'),
   customer: jsonb('customer').notNull(),
   shippingAddress: jsonb('shipping_address').notNull(),
+  shippingName: text('shipping_name'),
+  shippingPhone: text('shipping_phone'),
+  shippingAddressLine: text('shipping_address_line'),
+  shippingCity: text('shipping_city'),
+  shippingDistrict: text('shipping_district'),
+  shippingState: text('shipping_state'),
+  shippingPincode: text('shipping_pincode'),
+  trackingToken: text('tracking_token'),
+  currentLocation: text('current_location'),
+  expectedDeliveryDate: text('expected_delivery_date'),
   items: jsonb('items').notNull(),
   pricing: jsonb('pricing').notNull(),
   totalAmount: integer('total_amount').notNull(),
@@ -101,6 +144,28 @@ export const orders = pgTable('orders', {
   paymentDetails: jsonb('payment_details'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+export const orderTrackingEvents = pgTable('order_tracking_events', {
+  id: text('id').primaryKey(),
+  orderId: text('order_id').references(() => orders.id, { onDelete: 'cascade' }),
+  trackingNumber: text('tracking_number').notNull(),
+  status: text('status').notNull(),
+  location: text('location'),
+  description: text('description').notNull(),
+  source: text('source').notNull().default('SYSTEM'),
+  scannedBy: text('scanned_by'),
+  createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const qrScanEvents = pgTable('qr_scan_events', {
+  id: text('id').primaryKey(),
+  orderId: text('order_id').references(() => orders.id, { onDelete: 'cascade' }),
+  trackingNumber: text('tracking_number').notNull(),
+  scannedBy: text('scanned_by'),
+  scannerType: text('scanner_type').notNull(),
+  location: text('location'),
+  createdAt: timestamp('created_at').defaultNow(),
 });
 
 export const banners = pgTable('banners', {
