@@ -178,7 +178,7 @@ export type AdminRole = 'SUPER_ADMIN' | 'STORE_MANAGER' | 'INVENTORY_MANAGER';
 export interface AdminUser {
   id: string;
   username: string;
-  password: string;
+  password?: string;
   fullName: string;
   role: AdminRole;
   phone?: string;

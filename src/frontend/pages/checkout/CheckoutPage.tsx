@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CartItem, CustomerDetails, ShippingAddress, Order } from '../../../types';
 import { storeDb } from '../../../database/store';
+import { apiClient } from '../../../api/client';
 import { paymentService } from '../../../backend/services/paymentService';
 import { notificationService } from '../../../backend/services/notificationService';
 import { ShieldCheck, Truck, CreditCard, ArrowLeft, CheckCircle2, Lock } from 'lucide-react';
@@ -108,30 +109,68 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
     setIsProcessing(true);
 
     try {
-      // 1. Process payment simulation
-      const paymentResult = await paymentService.processPayment({
-        orderId: `FP-${10000 + Math.floor(Math.random() * 9000)}`,
-        amount: grandTotal,
-        customerName: customer.fullName,
-        customerMobile: customer.mobileNumber,
-        paymentMethod
-      });
+      // 1. Transactional Order Creation via Backend
+      let newOrder: Order;
+      try {
+        const orderPayload = {
+          customer,
+          shippingAddress: address,
+          items: cartItems.map((ci) => ({
+            productId: ci.productId,
+            quantity: ci.quantity,
+            selectedSize: ci.selectedSize,
+            selectedColor: ci.selectedColor
+          })),
+          paymentMethod,
+          couponCode: appliedCouponDiscount > 0 ? couponCode.toUpperCase() : undefined
+        };
 
-      if (!paymentResult.success) {
-        alert('Payment could not be processed. Please try again.');
-        setIsProcessing(false);
-        return;
+        const res = await apiClient.orders.create(orderPayload);
+        newOrder = res.order;
+        storeDb.clearCart();
+      } catch (backendErr: any) {
+        console.warn('Using storeDb fallback for order:', backendErr.message);
+        newOrder = storeDb.createOrder({
+          customer,
+          shippingAddress: address,
+          items: cartItems,
+          paymentMethod,
+          couponCode: appliedCouponDiscount > 0 ? couponCode.toUpperCase() : undefined,
+          discount: appliedCouponDiscount
+        });
       }
 
-      // 2. Create Order in Database
-      const newOrder = storeDb.createOrder({
-        customer,
-        shippingAddress: address,
-        items: cartItems,
-        paymentMethod,
-        couponCode: appliedCouponDiscount > 0 ? couponCode.toUpperCase() : undefined,
-        discount: appliedCouponDiscount
-      });
+      // 2. Handle Payment Verification if ONLINE
+      if (paymentMethod === 'ONLINE') {
+        const paymentResult = await paymentService.processPayment({
+          orderId: newOrder.id,
+          amount: newOrder.pricing?.grandTotal || newOrder.totalAmount,
+          customerName: customer.fullName,
+          customerMobile: customer.mobileNumber,
+          paymentMethod: 'ONLINE'
+        });
+
+        if (!paymentResult.success) {
+          if (paymentResult.unconfigured) {
+            const switchToCod = window.confirm(
+              `${paymentResult.message}\n\nWould you like to place your order with Cash on Delivery (COD) instead?`
+            );
+            if (switchToCod) {
+              setPaymentMethod('COD');
+              newOrder.paymentMethod = 'COD';
+              newOrder.paymentStatus = 'PENDING';
+              storeDb.updateOrderStatus(newOrder.id, 'NEW', undefined, undefined, 'Switched to Cash on Delivery (COD)');
+            } else {
+              setIsProcessing(false);
+              return;
+            }
+          } else {
+            alert(paymentResult.message || 'Payment could not be verified.');
+            setIsProcessing(false);
+            return;
+          }
+        }
+      }
 
       // 3. Trigger notification dispatcher
       await notificationService.sendOrderNotification(newOrder);
@@ -143,9 +182,9 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
       if (onOrderPlaced) {
         onOrderPlaced(newOrder.id, newOrder);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Order creation error:', err);
-      alert('An error occurred while creating your order. Please try again.');
+      alert(err.message || 'An error occurred while creating your order. Please try again.');
     } finally {
       setIsProcessing(false);
     }

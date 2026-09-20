@@ -18,7 +18,7 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
   const [errorMsg, setErrorMsg] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
@@ -29,8 +29,8 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
 
     setIsSubmitting(true);
 
-    setTimeout(() => {
-      const res = storeDb.verifyAdminLogin(username, password);
+    try {
+      const res = await storeDb.verifyAdminLoginAsync(username, password);
       setIsSubmitting(false);
 
       if (res.success && res.admin) {
@@ -38,13 +38,10 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
       } else {
         setErrorMsg(res.message || 'अमान्य एडमिन यूज़रनेम या पासवर्ड। (Invalid admin credentials)');
       }
-    }, 300);
-  };
-
-  const handleQuickFillDefault = () => {
-    setUsername('admin');
-    setPassword('admin123');
-    setErrorMsg('');
+    } catch (err: any) {
+      setIsSubmitting(false);
+      setErrorMsg(err.message || 'सर्वर से कनेक्ट करने में असमर्थ। (Failed to connect to authentication server)');
+    }
   };
 
   return (
@@ -163,35 +160,25 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
             </button>
           </form>
 
-          {/* Default Credentials Helper Box */}
+          {/* Authentication Security Notice */}
           <div className="mt-6 pt-5 border-t border-neutral-800">
-            <div className="bg-neutral-950/80 border border-neutral-800 rounded-xl p-3 text-xs">
-              <div className="flex items-center justify-between text-neutral-400 font-semibold mb-1.5">
-                <span className="flex items-center gap-1.5 text-neutral-300">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Default Owner Account:</span>
-                </span>
-                <button
-                  type="button"
-                  onClick={handleQuickFillDefault}
-                  className="text-amber-400 hover:underline font-bold text-[11px]"
-                >
-                  Auto Fill (स्वतः भरें)
-                </button>
+            <div className="bg-neutral-950/80 border border-neutral-800 rounded-xl p-3.5 text-xs">
+              <div className="flex items-center gap-2 text-neutral-300 font-semibold mb-2">
+                <Lock className="w-4 h-4 text-amber-400" />
+                <span>Enterprise Security Enabled:</span>
               </div>
-              <div className="grid grid-cols-2 gap-2 text-neutral-300 font-mono text-[11px] bg-neutral-900/60 p-2 rounded-lg border border-neutral-800">
-                <div>
-                  <span className="text-neutral-500 block text-[10px] uppercase font-sans">Username:</span>
-                  <span className="text-amber-300 font-bold">admin</span>
-                </div>
-                <div>
-                  <span className="text-neutral-500 block text-[10px] uppercase font-sans">Password:</span>
-                  <span className="text-amber-300 font-bold">admin123</span>
-                </div>
-              </div>
-              <p className="text-[10px] text-neutral-500 mt-2 text-center">
-                * लॉगिन करने के बाद आप नए एडमिन जोड़ सकते हैं और पासवर्ड भी बदल सकते हैं।
+              <p className="text-[11px] text-neutral-400 leading-relaxed mb-2">
+                All administrator sessions are authenticated server-side using cryptographic JSON Web Tokens (JWT) and bcrypt password hashing.
               </p>
+              <div className="bg-neutral-900/80 p-2.5 rounded-lg border border-neutral-800 text-[11px] text-neutral-300 flex items-center justify-between">
+                <div>
+                  <span className="text-neutral-500 block text-[10px] uppercase font-sans">Primary Admin Account</span>
+                  <span className="text-amber-300 font-bold font-mono">admin</span>
+                </div>
+                <span className="text-[10px] text-neutral-400 bg-neutral-800 px-2 py-0.5 rounded">
+                  Bcrypt Secured
+                </span>
+              </div>
             </div>
           </div>
         </div>

@@ -17,7 +17,7 @@ export interface NotificationLog {
   title: string;
   message: string;
   timestamp: string;
-  status: 'SENT' | 'SIMULATED';
+  status: 'SENT' | 'FAILED' | 'UNCONFIGURED';
 }
 
 class NotificationService {
@@ -40,7 +40,7 @@ class NotificationService {
       switch (order.orderStatus) {
         case 'NEW':
           title = `Fashion Point: Order ${order.id} Placed!`;
-          message = `Hi ${order.customer.fullName}, thank you for choosing Fashion Point! Your order ${order.id} for ₹${order.pricing.grandTotal} is confirmed. Track live here: ${trackingUrl}`;
+          message = `Hi ${order.customer.fullName}, thank you for choosing Fashion Point! Your order ${order.id} for ₹${order.pricing?.grandTotal || order.totalAmount} is confirmed. Track live here: ${trackingUrl}`;
           break;
         case 'CONFIRMED':
           title = `Fashion Point: Order ${order.id} Accepted`;
@@ -56,35 +56,41 @@ class NotificationService {
           break;
         case 'OUT_FOR_DELIVERY':
           title = `Fashion Point: Order ${order.id} Out for Delivery`;
-          message = `Hi ${order.customer.fullName}, your delivery executive is out for delivery today. Keep cash ready if COD: ₹${order.pricing.grandTotal}.`;
+          message = `Hi ${order.customer.fullName}, your delivery executive is out for delivery today. Keep cash ready if COD: ₹${order.pricing?.grandTotal || order.totalAmount}.`;
           break;
         case 'DELIVERED':
-          title = `Fashion Point: Order ${order.id} Delivered`;
+          title = `Fashion Point: Order ${order.id} Delivered!`;
           message = `Your parcel has been delivered! We hope you love your new clothes. Thank you for shopping with Fashion Point!`;
           break;
+        case 'CANCELLED':
+          title = `Fashion Point: Order ${order.id} Cancelled`;
+          message = `Your order ${order.id} has been cancelled.`;
+          break;
         default:
-          title = `Fashion Point: Order ${order.id} Update`;
-          message = `Your order status has been updated to ${order.orderStatus}.`;
+          title = `Fashion Point: Order Update`;
+          message = `Your order status is now: ${order.orderStatus}`;
       }
 
-      const log: NotificationLog = {
-        id: `ntf-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      // Check if real provider is configured
+      // If not configured, we explicitly report 'UNCONFIGURED' with 'Notification provider not configured'
+      const logEntry: NotificationLog = {
+        id: `LOG-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
         channel,
-        recipient: channel === 'EMAIL' ? (order.customer.email || 'customer@fashionpoint.store') : order.customer.mobileNumber,
+        recipient: channel === 'EMAIL' ? (order.customer.email || 'N/A') : order.customer.mobileNumber,
         title,
-        message,
+        message: 'Notification provider not configured. Set provider API keys in environment variables to enable live delivery.',
         timestamp: new Date().toISOString(),
-        status: 'SENT'
+        status: 'UNCONFIGURED'
       };
 
-      this.logs.unshift(log);
-      newLogs.push(log);
+      newLogs.push(logEntry);
+      this.logs.unshift(logEntry);
     }
 
     return newLogs;
   }
 
-  public getRecentLogs(): NotificationLog[] {
+  public getLogs(): NotificationLog[] {
     return [...this.logs];
   }
 }

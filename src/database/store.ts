@@ -13,6 +13,7 @@ import {
 } from '../types';
 import { INITIAL_PRODUCTS, INITIAL_COUPONS, INITIAL_BANNERS } from './seed/productsData';
 import { INITIAL_ORDERS } from './seed/ordersData';
+import { apiClient, setAdminToken } from '../api/client';
 
 const PRODUCTS_STORAGE_KEY = 'fashion_point_products_v1';
 const ORDERS_STORAGE_KEY = 'fashion_point_orders_v1';
@@ -631,7 +632,24 @@ class StoreDatabase {
   public getStats() {
     const totalOrders = this.orders.length;
     const totalSales = this.orders.reduce((sum, o) => sum + (o.totalAmount || o.pricing?.grandTotal || 0), 0);
-    const todaySales = this.orders.slice(0, 3).reduce((sum, o) => sum + (o.totalAmount || o.pricing?.grandTotal || 0), 0);
+
+    // Real Today's Sales calculation based on calendar day (00:00:00 - 23:59:59)
+    const today = new Date();
+    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+    const endOfToday = startOfToday + 24 * 60 * 60 * 1000;
+    const todaySales = this.orders
+      .filter((o) => {
+        const orderTime = new Date(o.createdAt).getTime();
+        return (
+          orderTime >= startOfToday &&
+          orderTime < endOfToday &&
+          o.status !== 'Cancelled' &&
+          o.status !== 'CANCELLED' &&
+          o.orderStatus !== 'CANCELLED'
+        );
+      })
+      .reduce((sum, o) => sum + (o.totalAmount || o.pricing?.grandTotal || 0), 0);
+
     const pendingOrders = this.orders.filter(
       (o) => o.status !== 'Delivered' && o.status !== 'DELIVERED' && o.status !== 'Cancelled' && o.status !== 'CANCELLED'
     ).length;
@@ -808,10 +826,8 @@ class StoreDatabase {
       return { success: false, message: 'This admin account has been deactivated. Please contact Super Admin.' };
     }
 
-    // Match password (also allow 'admin' or 'admin123')
-    const matchesPassword =
-      admin.password === cleanPass ||
-      (admin.username === 'admin' && (cleanPass === 'admin' || cleanPass === 'admin123'));
+    // Match password securely
+    const matchesPassword = admin.password === cleanPass;
 
     if (!matchesPassword) {
       return { success: false, message: 'Invalid Admin username or password.' };
@@ -830,6 +846,40 @@ class StoreDatabase {
       message: `Welcome back, ${admin.fullName}!`,
       admin
     };
+  }
+
+  public async verifyAdminLoginAsync(
+    usernameInput: string,
+    passwordInput: string
+  ): Promise<{ success: boolean; message: string; admin?: AdminUser }> {
+    const cleanUser = usernameInput.trim().toLowerCase();
+    const cleanPass = passwordInput.trim();
+
+    try {
+      const res = await apiClient.adminAuth.login(cleanUser, cleanPass);
+      if (res.success && res.token) {
+        setAdminToken(res.token);
+        const adminObj: AdminUser = {
+          id: res.admin.id,
+          username: res.admin.username,
+          fullName: res.admin.fullName,
+          role: res.admin.role,
+          phone: res.admin.phone,
+          email: res.admin.email,
+          isActive: res.admin.isActive !== false,
+          createdAt: res.admin.createdAt || new Date().toISOString(),
+          lastLoginAt: new Date().toISOString()
+        };
+        this.adminSession = adminObj;
+        this.persistAdminSession();
+        this.notify();
+        return { success: true, message: `Welcome back, ${adminObj.fullName}!`, admin: adminObj };
+      }
+      return { success: false, message: 'Invalid Admin credentials.' };
+    } catch (err: any) {
+      // Fallback to local admin verification if offline
+      return this.verifyAdminLogin(usernameInput, passwordInput);
+    }
   }
 
   public getAdminSession(): AdminUser | null {
