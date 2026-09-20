@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { storeDb } from './database/store';
+import { cartManager } from './utils/cartManager';
+import { apiClient } from './api/client';
 import { CartItem, Product } from './types';
 
 // Frontend Components
@@ -29,18 +30,17 @@ import { AdminUser } from './types';
 
 export default function App() {
   const [currentPath, setCurrentPath] = useState<string>('/home');
-  const [cartItems, setCartItems] = useState<CartItem[]>(storeDb.getCart());
-  const [wishlistIds, setWishlistIds] = useState<string[]>(storeDb.getWishlist());
+  const [cartItems, setCartItems] = useState<CartItem[]>(cartManager.getCart());
+  const [wishlistIds, setWishlistIds] = useState<string[]>(cartManager.getWishlist());
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isAdminMode, setIsAdminMode] = useState(false);
-  const [adminSession, setAdminSession] = useState<AdminUser | null>(storeDb.getAdminSession());
+  const [adminSession, setAdminSession] = useState<AdminUser | null>(apiClient.adminAuth.getStoredSession());
 
-  // Subscribe to database updates
+  // Subscribe to cart and wishlist updates
   useEffect(() => {
-    const unsub = storeDb.subscribe(() => {
-      setCartItems(storeDb.getCart());
-      setWishlistIds(storeDb.getWishlist());
-      setAdminSession(storeDb.getAdminSession());
+    const unsub = cartManager.subscribe(() => {
+      setCartItems(cartManager.getCart());
+      setWishlistIds(cartManager.getWishlist());
     });
     return unsub;
   }, []);
@@ -88,7 +88,7 @@ export default function App() {
   };
 
   const handleAdminLogout = () => {
-    storeDb.logoutAdmin();
+    apiClient.adminAuth.logout();
     setAdminSession(null);
     setIsAdminMode(false);
     setCurrentPath('/home');

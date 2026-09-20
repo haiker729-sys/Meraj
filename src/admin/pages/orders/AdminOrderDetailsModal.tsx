@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Order, OrderStatus } from '../../../types';
-import { storeDb } from '../../../database/store';
+import { apiClient } from '../../../api/client';
 import { notificationService } from '../../../backend/services/notificationService';
 import { PrintLabelModal } from '../../../shipping-label/print/PrintLabelModal';
 import { PrintInvoiceModal } from '../../../invoice/print/PrintInvoiceModal';
@@ -63,13 +63,18 @@ export const AdminOrderDetailsModal: React.FC<AdminOrderDetailsModalProps> = ({
     order.orderStatus === 'DELIVERED';
 
   const handleUpdateOrder = async () => {
-    storeDb.updateOrderStatus(order.id, currentStatus, courierName, trackingNumber);
+    try {
+      const res = await apiClient.orders.updateStatus(order.id, {
+        status: currentStatus,
+        courierName,
+        awbNumber: trackingNumber
+      });
 
-    if (notifyCustomer) {
-      const updatedOrder = storeDb.getOrderById(order.id);
-      if (updatedOrder) {
-        await notificationService.sendOrderNotification(updatedOrder);
+      if (notifyCustomer && res?.order) {
+        await notificationService.sendOrderNotification(res.order);
       }
+    } catch (err) {
+      console.error('Failed to update order status:', err);
     }
 
     onOrderUpdated();
@@ -77,12 +82,16 @@ export const AdminOrderDetailsModal: React.FC<AdminOrderDetailsModalProps> = ({
   };
 
   const executeCancelOrder = async () => {
-    storeDb.cancelOrder(order.id, cancelReason);
-    if (notifyCustomer) {
-      const updatedOrder = storeDb.getOrderById(order.id);
-      if (updatedOrder) {
-        await notificationService.sendOrderNotification(updatedOrder);
+    try {
+      const res = await apiClient.orders.updateStatus(order.id, {
+        status: 'CANCELLED',
+        note: cancelReason
+      });
+      if (notifyCustomer && res?.order) {
+        await notificationService.sendOrderNotification(res.order);
       }
+    } catch (err) {
+      console.error('Failed to cancel order:', err);
     }
     onOrderUpdated();
     onClose();

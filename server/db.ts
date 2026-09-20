@@ -1,11 +1,8 @@
-import pg from 'pg';
-import fs from 'fs';
-import path from 'path';
+import { Pool, PoolClient } from 'pg';
 import bcrypt from 'bcryptjs';
-import { INITIAL_PRODUCTS, INITIAL_COUPONS } from '../src/database/seed/productsData';
-import { INITIAL_ORDERS } from '../src/database/seed/ordersData';
-
-const { Pool } = pg;
+import crypto from 'crypto';
+import { pool } from '../src/db/index';
+import { INITIAL_PRODUCTS, INITIAL_COUPONS, INITIAL_BANNERS, STORE_CONFIG } from '../src/database/seed/productsData';
 
 export interface DbStats {
   totalSales: number;
@@ -19,235 +16,265 @@ export interface DbStats {
   lowStockCount: number;
 }
 
-// In-Memory storage backing store (used when DATABASE_URL is not configured or offline)
-class DatabaseManager {
-  private pool: pg.Pool | null = null;
-  private isPostgresConnected = false;
-
-  // In-memory relational tables
-  private users: any[] = [];
-  private admins: any[] = [];
-  private addresses: any[] = [];
-  private categories: any[] = [];
-  private products: any[] = [];
-  private productVariants: any[] = [];
-  private productImages: any[] = [];
-  private coupons: any[] = [];
-  private carts: Map<string, any[]> = new Map(); // key -> CartItem[]
-  private orders: any[] = [];
-  private orderStatusHistories: any[] = [];
-  private payments: any[] = [];
-  private notifications: any[] = [];
-  private settings: Record<string, any> = {
-    storeName: 'Fashion Point',
-    tagline: 'Modern & Traditional Indian Clothing Store',
-    contactEmail: 'contact@fashionpoint.store',
-    supportPhone: '+91 73523 19943',
-    ownerName: 'Meraj Alam',
-    gstin: '23AAAAF0000A1Z5',
-    defaultTaxRate: 5, // 5% GST
-    freeShippingThreshold: 999,
-    standardShippingFee: 49,
-    isCodEnabled: true,
-    isOnlinePaymentEnabled: true,
-    address: 'Near Main Bazaar, City Centre, Madhya Pradesh - 452001'
+// Map database snake_case row to camelCase Product
+function mapProductRow(r: any) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    name: r.name,
+    slug: r.slug,
+    categoryId: r.category_id,
+    category: r.category,
+    subCategory: r.sub_category,
+    description: r.description,
+    price: Number(r.price),
+    mrp: Number(r.mrp),
+    discount: Number(r.discount || 0),
+    sizes: Array.isArray(r.sizes) ? r.sizes : (typeof r.sizes === 'string' ? JSON.parse(r.sizes) : ['M', 'L', 'XL']),
+    colors: Array.isArray(r.colors) ? r.colors : (typeof r.colors === 'string' ? JSON.parse(r.colors) : []),
+    stock: Number(r.stock || 0),
+    sku: r.sku,
+    status: r.status || 'PUBLISHED',
+    isFeatured: Boolean(r.is_featured),
+    isNewArrival: Boolean(r.is_new_arrival),
+    isBestseller: Boolean(r.is_bestseller),
+    isActive: Boolean(r.is_active),
+    images: Array.isArray(r.images) ? r.images : (typeof r.images === 'string' ? JSON.parse(r.images) : []),
+    rating: Number(r.rating || 4.8),
+    reviewsCount: Number(r.reviews_count || 0),
+    material: r.material,
+    careInstructions: r.care_instructions,
+    createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+    updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString()
   };
+}
+
+// Map database snake_case row to camelCase Order
+function mapOrderRow(r: any) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    userId: r.user_id,
+    orderStatus: r.order_status,
+    status: r.status || r.order_status,
+    paymentMethod: r.payment_method,
+    paymentStatus: r.payment_status,
+    customer: typeof r.customer === 'string' ? JSON.parse(r.customer) : r.customer,
+    shippingAddress: typeof r.shipping_address === 'string' ? JSON.parse(r.shipping_address) : r.shipping_address,
+    items: typeof r.items === 'string' ? JSON.parse(r.items) : r.items,
+    pricing: typeof r.pricing === 'string' ? JSON.parse(r.pricing) : r.pricing,
+    totalAmount: Number(r.total_amount),
+    taxBreakdown: typeof r.tax_breakdown === 'string' ? JSON.parse(r.tax_breakdown) : r.tax_breakdown,
+    razorpayOrderId: r.razorpay_order_id,
+    razorpayPaymentId: r.razorpay_payment_id,
+    courierName: r.courier_name,
+    trackingNumber: r.tracking_number,
+    awbNumber: r.awb_number,
+    invoiceNumber: r.invoice_number,
+    estimatedDelivery: r.estimated_delivery,
+    timeline: typeof r.timeline === 'string' ? JSON.parse(r.timeline) : r.timeline,
+    customerNote: r.customer_note,
+    adminNote: r.admin_note,
+    paymentDetails: typeof r.payment_details === 'string' ? JSON.parse(r.payment_details) : r.payment_details,
+    createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString(),
+    updatedAt: r.updated_at ? new Date(r.updated_at).toISOString() : new Date().toISOString()
+  };
+}
+
+class PostgresDatabaseManager {
+  private pool: Pool;
+  private isInitialized = false;
+  private initPromise: Promise<void> | null = null;
 
   constructor() {
-    this.seedInMemory();
-    this.initPostgres();
-  }
-
-  private async seedInMemory() {
-    // Categories
-    this.categories = [
-      { id: 'cat-men', name: 'Men', slug: 'men', description: 'Shirts, Kurta, T-Shirts, Trousers & Ethnic wear for Men', imageUrl: 'https://images.unsplash.com/photo-1617137984095-74e4e5e3613f?auto=format&fit=crop&w=800&q=80', isActive: true, displayOrder: 1 },
-      { id: 'cat-women', name: 'Women', slug: 'women', description: 'Kurtis, Sarees, Dresses, Co-ord Sets & Traditional wear', imageUrl: 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?auto=format&fit=crop&w=800&q=80', isActive: true, displayOrder: 2 },
-      { id: 'cat-kids', name: 'Kids', slug: 'kids', description: 'Festive wear, Everyday sets & comfortable casuals for boys & girls', imageUrl: 'https://images.unsplash.com/photo-1622290291468-a28f7a7dc6a8?auto=format&fit=crop&w=800&q=80', isActive: true, displayOrder: 3 }
-    ];
-
-    // Seed Admin: Default secure admin with bcrypt password hash
-    const adminPassword = process.env.ADMIN_DEFAULT_PASSWORD || 'Meraj@FashionPoint2026';
-    const adminPasswordHash = bcrypt.hashSync(adminPassword, 10);
-    this.admins = [
-      {
-        id: 'ADM-101',
-        username: 'admin',
-        passwordHash: adminPasswordHash,
-        fullName: 'Meraj Alam (Store Owner)',
-        role: 'SUPER_ADMIN',
-        phone: '+91 73523 19943',
-        email: 'meraj7352319943@gmail.com',
-        isActive: true,
-        createdAt: '2026-01-01T00:00:00.000Z',
-        lastLoginAt: new Date().toISOString()
-      }
-    ];
-
-    // Seed Demo Customer
-    const customerPasswordHash = bcrypt.hashSync('Customer@123', 10);
-    this.users = [
-      {
-        id: 'usr-demo-01',
-        email: 'customer@fashionpoint.store',
-        mobile: '9876543210',
-        passwordHash: customerPasswordHash,
-        fullName: 'Rahul Sharma',
-        role: 'CUSTOMER',
-        isActive: true,
-        createdAt: '2026-02-10T12:00:00.000Z',
-        updatedAt: '2026-02-10T12:00:00.000Z'
-      }
-    ];
-
-    // Seed Products from existing initial products
-    this.products = INITIAL_PRODUCTS.map((p) => ({
-      id: p.id,
-      name: p.name,
-      slug: p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
-      categoryId: p.category.toLowerCase() === 'men' ? 'cat-men' : p.category.toLowerCase() === 'women' ? 'cat-women' : 'cat-kids',
-      category: p.category,
-      subCategory: p.subCategory,
-      description: p.description,
-      price: Number(p.price),
-      mrp: Number(p.mrp),
-      discount: p.discount || Math.round(((p.mrp - p.price) / p.mrp) * 100),
-      sizes: p.sizes,
-      colors: p.colors,
-      stock: p.stock,
-      sku: p.sku,
-      status: p.status || 'PUBLISHED',
-      isFeatured: Boolean(p.isFeatured),
-      isNewArrival: Boolean(p.isNewArrival),
-      isBestseller: Boolean(p.isBestseller),
-      isActive: p.status !== 'UNPUBLISHED',
-      images: p.images,
-      rating: p.rating || 4.8,
-      reviewsCount: p.reviewsCount || 20,
-      material: p.material || 'Premium Cotton',
-      careInstructions: p.careInstructions || 'Machine wash cold',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    }));
-
-    // Seed Coupons
-    this.coupons = INITIAL_COUPONS.map((c) => ({
-      id: c.id,
-      code: c.code.toUpperCase(),
-      discountType: c.discountType,
-      discountValue: c.discountValue,
-      minOrderAmount: c.minOrderAmount || 0,
-      maxDiscountAmount: (c as any).maxDiscountAmount || c.maxDiscount || (c.discountType === 'PERCENTAGE' ? 1000 : c.discountValue),
-      usageLimit: 500,
-      usageCount: 14,
-      isActive: c.isActive !== false,
-      validFrom: '2026-01-01T00:00:00.000Z',
-      validUntil: '2026-12-31T23:59:59.000Z',
-      description: c.description
-    }));
-
-    // Seed Orders
-    this.orders = (INITIAL_ORDERS as any[]).map((o) => {
-      const orderDate = o.createdAt || new Date().toISOString();
-      const subtotal = o.pricing?.subtotal || o.totalAmount || 1299;
-      const deliveryCharge = o.pricing?.deliveryCharge ?? 0;
-      const discount = o.pricing?.discount ?? 0;
-      const grandTotal = o.pricing?.grandTotal || (subtotal + deliveryCharge - discount);
-      const taxableAmount = Math.round((grandTotal / 1.05) * 100) / 100;
-      const totalGst = Math.round((grandTotal - taxableAmount) * 100) / 100;
-
-      return {
-        id: o.id,
-        userId: o.userId || 'usr-demo-01',
-        orderStatus: o.orderStatus || 'CONFIRMED',
-        status: o.orderStatus || 'CONFIRMED',
-        paymentMethod: o.paymentMethod || 'COD',
-        paymentStatus: o.paymentStatus || (o.paymentMethod === 'COD' ? 'PENDING' : 'PAID'),
-        customer: o.customer || {
-          fullName: 'Ananya Verma',
-          mobileNumber: '9826012345',
-          email: 'ananya.verma@example.com'
-        },
-        shippingAddress: o.shippingAddress || {
-          houseShopNo: 'Flat 402, Royal Palms',
-          street: 'MG Road',
-          villageArea: 'Palasia',
-          city: 'Indore',
-          district: 'Indore',
-          state: 'Madhya Pradesh',
-          pinCode: '452001',
-          landmark: 'Opposite Central Mall'
-        },
-        items: o.items || [],
-        pricing: {
-          subtotal,
-          deliveryCharge,
-          discount,
-          grandTotal
-        },
-        totalAmount: grandTotal,
-        taxBreakdown: {
-          taxableAmount,
-          cgst: Math.round((totalGst / 2) * 100) / 100,
-          sgst: Math.round((totalGst / 2) * 100) / 100,
-          totalGst
-        },
-        courierName: o.courierName || 'Delhivery Express',
-        trackingNumber: o.trackingNumber || `FP-DEL-${o.id.replace(/\D/g, '') || '8832'}`,
-        awbNumber: o.awbNumber || `FP-DEL-${o.id.replace(/\D/g, '') || '8832'}`,
-        invoiceNumber: o.invoiceNumber || `INV-2026-${o.id.replace(/\D/g, '') || '101'}`,
-        estimatedDelivery: o.estimatedDelivery || '3 - 5 Business Days',
-        timeline: o.timeline || [
-          {
-            status: 'NEW',
-            title: 'Order Placed',
-            description: 'Order confirmed by customer with cash on delivery verification.',
-            timestamp: orderDate,
-            location: 'Fashion Point Store, Madhya Pradesh'
-          }
-        ],
-        createdAt: orderDate,
-        updatedAt: orderDate
-      };
+    this.pool = pool;
+    this.initDatabase().catch((err) => {
+      console.error('Database initialization error:', err);
     });
   }
 
-  private async initPostgres() {
-    const dbUrl = process.env.DATABASE_URL;
-    if (!dbUrl) {
-      console.log('ℹ️ [Fashion Point DB] No DATABASE_URL provided. Running on production-grade in-memory database store.');
-      return;
-    }
+  /**
+   * Initializes database with seed records in PostgreSQL if tables are empty
+   */
+  private async initDatabase(): Promise<void> {
+    if (this.isInitialized) return;
+    if (this.initPromise) return this.initPromise;
 
-    try {
-      this.pool = new Pool({
-        connectionString: dbUrl,
-        ssl: dbUrl.includes('localhost') ? false : { rejectUnauthorized: false },
-        connectionTimeoutMillis: 5000
-      });
-
-      const client = await this.pool.connect();
-      console.log('✅ [Fashion Point DB] Connected successfully to PostgreSQL database!');
-      this.isPostgresConnected = true;
-
-      // Run schema
+    this.initPromise = (async () => {
       try {
-        const schemaPath = path.join(process.cwd(), 'server', 'schema.sql');
-        if (fs.existsSync(schemaPath)) {
-          const sql = fs.readFileSync(schemaPath, 'utf8');
-          await client.query(sql);
-          console.log('✅ [Fashion Point DB] Database tables verified/migrated.');
+        // 1. Verify categories
+        const catCheck = await this.pool.query('SELECT count(*)::int as count FROM categories');
+        if (catCheck.rows[0].count === 0) {
+          const initialCategories = [
+            { id: 'cat-men', name: 'Men', slug: 'men', image: 'https://images.unsplash.com/photo-1617137984095-74e4e5e3613f?auto=format&fit=crop&w=800&q=80' },
+            { id: 'cat-women', name: 'Women', slug: 'women', image: 'https://images.unsplash.com/photo-1583391733956-3750e0ff4e8b?auto=format&fit=crop&w=800&q=80' },
+            { id: 'cat-kids', name: 'Kids', slug: 'kids', image: 'https://images.unsplash.com/photo-1622290291468-a28f7a7dc6a8?auto=format&fit=crop&w=800&q=80' }
+          ];
+          for (const cat of initialCategories) {
+            await this.pool.query(
+              'INSERT INTO categories (id, name, slug, image) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO NOTHING',
+              [cat.id, cat.name, cat.slug, cat.image]
+            );
+          }
         }
-      } catch (err) {
-        console.warn('⚠️ [Fashion Point DB] Schema migration notice:', (err as any).message);
-      } finally {
-        client.release();
+
+        // 2. Verify products
+        const prodCheck = await this.pool.query('SELECT count(*)::int as count FROM products');
+        if (prodCheck.rows[0].count === 0) {
+          for (const p of INITIAL_PRODUCTS) {
+            const slug = p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+            const categoryId = p.category.toLowerCase() === 'men' ? 'cat-men' : p.category.toLowerCase() === 'women' ? 'cat-women' : 'cat-kids';
+            await this.pool.query(
+              `INSERT INTO products (
+                id, name, slug, category_id, category, sub_category, description, price, mrp, discount,
+                sizes, colors, stock, sku, status, is_featured, is_new_arrival, is_bestseller, is_active,
+                images, rating, reviews_count, material, care_instructions
+              ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                $11, $12, $13, $14, $15, $16, $17, $18, $19,
+                $20, $21, $22, $23, $24
+              ) ON CONFLICT (id) DO NOTHING`,
+              [
+                p.id,
+                p.name,
+                slug,
+                categoryId,
+                p.category,
+                p.subCategory || 'Apparel',
+                p.description,
+                Number(p.price),
+                Number(p.mrp),
+                p.discount || Math.round(((p.mrp - p.price) / p.mrp) * 100),
+                JSON.stringify(p.sizes),
+                JSON.stringify(p.colors),
+                Number(p.stock),
+                p.sku,
+                p.status || 'PUBLISHED',
+                Boolean(p.isFeatured),
+                Boolean(p.isNewArrival),
+                Boolean(p.isBestseller),
+                p.status !== 'UNPUBLISHED',
+                JSON.stringify(p.images),
+                p.rating || 4.8,
+                p.reviewsCount || 20,
+                p.material || '100% Pure Combed Cotton',
+                p.careInstructions || 'Machine wash cold with like colors'
+              ]
+            );
+          }
+        }
+
+        // 3. Verify coupons
+        const couponCheck = await this.pool.query('SELECT count(*)::int as count FROM coupons');
+        if (couponCheck.rows[0].count === 0) {
+          for (const c of INITIAL_COUPONS) {
+            const maxDiscount = (c as any).maxDiscountAmount || (c as any).maxDiscount || (c.discountType === 'PERCENTAGE' ? 1000 : c.discountValue);
+            await this.pool.query(
+              `INSERT INTO coupons (
+                id, code, discount_type, discount_value, min_order_amount, max_discount_amount,
+                usage_limit, usage_count, is_active, expires_at
+              ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) ON CONFLICT (code) DO NOTHING`,
+              [
+                c.id,
+                c.code.toUpperCase(),
+                c.discountType,
+                Number(c.discountValue),
+                Number(c.minOrderAmount || 0),
+                Number(maxDiscount),
+                500,
+                0,
+                c.isActive !== false,
+                c.validUntil ? new Date(c.validUntil) : new Date('2026-12-31T23:59:59Z')
+              ]
+            );
+          }
+        }
+
+      // 4. Verify Super Admin Account - NO HARDCODED PASSWORDS
+      const adminCheck = await this.pool.query('SELECT count(*)::int as count FROM admins');
+      if (adminCheck.rows[0].count === 0) {
+        const envPassword = process.env.ADMIN_INITIAL_PASSWORD || process.env.ADMIN_PASSWORD;
+        const initialPassword = envPassword || crypto.randomBytes(9).toString('base64url');
+        const passwordHash = bcrypt.hashSync(initialPassword, 10);
+
+        await this.pool.query(
+          `INSERT INTO admins (id, username, password_hash, full_name, role, phone, email, is_active)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, true) ON CONFLICT (id) DO NOTHING`,
+          [
+            'ADM-SUPER-01',
+            'admin',
+            passwordHash,
+            'Meraj Alam (Store Owner)',
+            'SUPER_ADMIN',
+            '+91 73523 19943',
+            'contact@fashionpoint.store'
+          ]
+        );
+
+        if (!envPassword) {
+          console.log('\n======================================================');
+          console.log(' [Fashion Point Security Notice]');
+          console.log(` Initial Super Admin created: username="admin" password="${initialPassword}"`);
+          console.log(' Set ADMIN_INITIAL_PASSWORD in environment for a permanent secret.');
+          console.log('======================================================\n');
+        } else {
+          console.log('Initial Super Admin "admin" created with configured ADMIN_INITIAL_PASSWORD.');
+        }
+      } else if (process.env.ADMIN_INITIAL_PASSWORD) {
+        const passwordHash = bcrypt.hashSync(process.env.ADMIN_INITIAL_PASSWORD.trim(), 10);
+        await this.pool.query(
+          `UPDATE admins SET password_hash = $1 WHERE username = 'admin'`,
+          [passwordHash]
+        );
       }
+
+      // 5. Verify Banners
+      const bannerCheck = await this.pool.query('SELECT count(*)::int as count FROM banners');
+      if (bannerCheck.rows[0].count === 0) {
+        for (let i = 0; i < INITIAL_BANNERS.length; i++) {
+          const b = INITIAL_BANNERS[i];
+          await this.pool.query(
+            `INSERT INTO banners (id, title, subtitle, cta_text, link, badge, image, is_active, sort_order)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8) ON CONFLICT (id) DO NOTHING`,
+            [b.id, b.title, b.subtitle, b.ctaText, b.link, b.badge, b.imageUrl, i]
+          );
+        }
+      }
+
+      // 6. Verify Store Settings
+      const settingsCheck = await this.pool.query('SELECT count(*)::int as count FROM store_settings');
+      if (settingsCheck.rows[0].count === 0) {
+        const defaultSettings = {
+          storeName: STORE_CONFIG.name,
+          tagline: STORE_CONFIG.tagline,
+          contactEmail: STORE_CONFIG.email,
+          supportPhone: STORE_CONFIG.phone,
+          ownerName: 'Meraj Alam',
+          gstin: STORE_CONFIG.gstin,
+          defaultTaxRate: 5,
+          freeShippingThreshold: STORE_CONFIG.freeShippingThreshold,
+          standardShippingFee: 49,
+          isCodEnabled: true,
+          isOnlinePaymentEnabled: true,
+          address: STORE_CONFIG.address
+        };
+        await this.pool.query(
+          'INSERT INTO store_settings (id, settings) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING',
+          ['default', JSON.stringify(defaultSettings)]
+        );
+      }
+
+      this.isInitialized = true;
+      console.log('PostgreSQL database verified and ready.');
     } catch (err) {
-      console.warn('⚠️ [Fashion Point DB] Could not connect to PostgreSQL server. Falling back to in-memory store:', (err as any).message);
-      this.isPostgresConnected = false;
+      console.error('Failed to initialize PostgreSQL tables/seed:', err);
+    } finally {
+      this.initPromise = null;
     }
-  }
+  })();
+
+  return this.initPromise;
+}
 
   // --- PRODUCTS ---
   public async getProducts(filters?: {
@@ -260,117 +287,236 @@ class DatabaseManager {
     limit?: number;
     offset?: number;
   }) {
-    let list = [...this.products];
+    await this.initDatabase();
 
-    if (filters?.category && filters.category !== 'all') {
-      const cat = filters.category.toLowerCase();
-      list = list.filter((p) => p.category.toLowerCase() === cat);
+    const conditions: string[] = ['is_active = true'];
+    const values: any[] = [];
+    let paramIndex = 1;
+
+    if (filters?.category && filters.category.toLowerCase() !== 'all') {
+      conditions.push(`LOWER(category) = LOWER($${paramIndex++})`);
+      values.push(filters.category);
     }
 
-    if (filters?.subCategory && filters.subCategory !== 'all') {
-      const sub = filters.subCategory.toLowerCase();
-      list = list.filter((p) => p.subCategory?.toLowerCase() === sub);
+    if (filters?.subCategory && filters.subCategory.toLowerCase() !== 'all') {
+      conditions.push(`LOWER(sub_category) = LOWER($${paramIndex++})`);
+      values.push(filters.subCategory);
     }
 
     if (filters?.search) {
-      const q = filters.search.toLowerCase().trim();
-      list = list.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.description.toLowerCase().includes(q) ||
-          p.sku.toLowerCase().includes(q) ||
-          p.category.toLowerCase().includes(q)
+      const q = `%${filters.search.trim().toLowerCase()}%`;
+      conditions.push(
+        `(LOWER(name) LIKE $${paramIndex} OR LOWER(description) LIKE $${paramIndex} OR LOWER(sku) LIKE $${paramIndex} OR LOWER(category) LIKE $${paramIndex})`
       );
+      values.push(q);
+      paramIndex++;
     }
 
     if (filters?.minPrice !== undefined) {
-      list = list.filter((p) => p.price >= filters.minPrice!);
+      conditions.push(`price >= $${paramIndex++}`);
+      values.push(filters.minPrice);
     }
+
     if (filters?.maxPrice !== undefined) {
-      list = list.filter((p) => p.price <= filters.maxPrice!);
+      conditions.push(`price <= $${paramIndex++}`);
+      values.push(filters.maxPrice);
     }
 
-    // Sorting
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    // Order By
+    let orderBy = 'created_at DESC';
     if (filters?.sort === 'price-low') {
-      list.sort((a, b) => a.price - b.price);
+      orderBy = 'price ASC';
     } else if (filters?.sort === 'price-high') {
-      list.sort((a, b) => b.price - a.price);
+      orderBy = 'price DESC';
     } else if (filters?.sort === 'newest') {
-      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      orderBy = 'created_at DESC';
     } else if (filters?.sort === 'popular') {
-      list.sort((a, b) => (b.reviewsCount || 0) - (a.reviewsCount || 0));
+      orderBy = 'reviews_count DESC';
     }
 
-    const total = list.length;
-    const offset = filters?.offset || 0;
-    const limit = filters?.limit || 50;
-    const paginated = list.slice(offset, offset + limit);
+    // Count query
+    const countRes = await this.pool.query(
+      `SELECT COUNT(*)::int as total FROM products ${whereClause}`,
+      values
+    );
+    const total = countRes.rows[0]?.total || 0;
 
-    return { products: paginated, total, limit, offset };
+    // Paginated list
+    const limit = filters?.limit || 50;
+    const offset = filters?.offset || 0;
+
+    const listQuery = `
+      SELECT * FROM products
+      ${whereClause}
+      ORDER BY ${orderBy}
+      LIMIT $${paramIndex++} OFFSET $${paramIndex++}
+    `;
+    const listRes = await this.pool.query(listQuery, [...values, limit, offset]);
+
+    return {
+      products: listRes.rows.map(mapProductRow),
+      total,
+      limit,
+      offset
+    };
   }
 
   public async getProductById(id: string) {
-    return this.products.find((p) => p.id === id) || null;
+    await this.initDatabase();
+    const res = await this.pool.query('SELECT * FROM products WHERE id = $1', [id]);
+    return mapProductRow(res.rows[0]);
   }
 
   public async createProduct(productData: any) {
-    const newProduct = {
-      id: productData.id || `fp-prod-${Date.now()}`,
-      name: productData.name,
-      slug: productData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
-      category: productData.category,
-      subCategory: productData.subCategory || 'Apparel',
-      description: productData.description || '',
-      price: Number(productData.price),
-      mrp: Number(productData.mrp || productData.price),
-      discount: productData.discount || Math.max(0, Math.round(((productData.mrp - productData.price) / productData.mrp) * 100)),
-      sizes: Array.isArray(productData.sizes) ? productData.sizes : ['M', 'L', 'XL'],
-      colors: Array.isArray(productData.colors) ? productData.colors : [{ name: 'Standard', hex: '#111111' }],
-      stock: Number(productData.stock || 0),
-      sku: productData.sku || `FP-${Date.now().toString().slice(-6)}`,
-      status: productData.status || 'PUBLISHED',
-      isFeatured: Boolean(productData.isFeatured),
-      isNewArrival: Boolean(productData.isNewArrival),
-      isBestseller: Boolean(productData.isBestseller),
-      isActive: productData.status !== 'UNPUBLISHED',
-      images: Array.isArray(productData.images) && productData.images.length > 0
-        ? productData.images
-        : ['https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?auto=format&fit=crop&w=800&q=80'],
-      rating: 5.0,
-      reviewsCount: 1,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
+    await this.initDatabase();
+    const id = productData.id || `fp-prod-${Date.now()}`;
+    const slug = productData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+    const categoryId = productData.categoryId || (productData.category?.toLowerCase() === 'men' ? 'cat-men' : productData.category?.toLowerCase() === 'women' ? 'cat-women' : 'cat-kids');
 
-    this.products.unshift(newProduct);
-    return newProduct;
+    const res = await this.pool.query(
+      `INSERT INTO products (
+        id, name, slug, category_id, category, sub_category, description, price, mrp, discount,
+        sizes, colors, stock, sku, status, is_featured, is_new_arrival, is_bestseller, is_active,
+        images, rating, reviews_count, material, care_instructions, created_at, updated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+        $11, $12, $13, $14, $15, $16, $17, $18, $19,
+        $20, $21, $22, $23, $24, NOW(), NOW()
+      ) RETURNING *`,
+      [
+        id,
+        productData.name,
+        slug,
+        categoryId,
+        productData.category,
+        productData.subCategory || 'Apparel',
+        productData.description || '',
+        Number(productData.price),
+        Number(productData.mrp || productData.price),
+        Number(productData.discount || 0),
+        JSON.stringify(Array.isArray(productData.sizes) ? productData.sizes : ['M', 'L', 'XL']),
+        JSON.stringify(Array.isArray(productData.colors) ? productData.colors : [{ name: 'Standard', hex: '#111111' }]),
+        Number(productData.stock || 0),
+        productData.sku || `FP-${Date.now().toString().slice(-6)}`,
+        productData.status || 'PUBLISHED',
+        Boolean(productData.isFeatured),
+        Boolean(productData.isNewArrival),
+        Boolean(productData.isBestseller),
+        productData.status !== 'UNPUBLISHED',
+        JSON.stringify(Array.isArray(productData.images) && productData.images.length > 0 ? productData.images : ['https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?auto=format&fit=crop&w=800&q=80']),
+        5.0,
+        1,
+        productData.material || 'Cotton',
+        productData.careInstructions || 'Machine wash cold'
+      ]
+    );
+
+    return mapProductRow(res.rows[0]);
   }
 
   public async updateProduct(id: string, updates: any) {
-    const idx = this.products.findIndex((p) => p.id === id);
-    if (idx === -1) return null;
+    await this.initDatabase();
 
-    const updated = {
-      ...this.products[idx],
-      ...updates,
-      price: updates.price !== undefined ? Number(updates.price) : this.products[idx].price,
-      mrp: updates.mrp !== undefined ? Number(updates.mrp) : this.products[idx].mrp,
-      stock: updates.stock !== undefined ? Number(updates.stock) : this.products[idx].stock,
-      updatedAt: new Date().toISOString()
-    };
-    this.products[idx] = updated;
-    return updated;
+    const fields: string[] = ['updated_at = NOW()'];
+    const values: any[] = [];
+    let idx = 1;
+
+    if (updates.name !== undefined) {
+      fields.push(`name = $${idx++}`);
+      values.push(updates.name);
+      fields.push(`slug = $${idx++}`);
+      values.push(updates.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''));
+    }
+    if (updates.category !== undefined) {
+      fields.push(`category = $${idx++}`);
+      values.push(updates.category);
+    }
+    if (updates.subCategory !== undefined) {
+      fields.push(`sub_category = $${idx++}`);
+      values.push(updates.subCategory);
+    }
+    if (updates.description !== undefined) {
+      fields.push(`description = $${idx++}`);
+      values.push(updates.description);
+    }
+    if (updates.price !== undefined) {
+      fields.push(`price = $${idx++}`);
+      values.push(Number(updates.price));
+    }
+    if (updates.mrp !== undefined) {
+      fields.push(`mrp = $${idx++}`);
+      values.push(Number(updates.mrp));
+    }
+    if (updates.discount !== undefined) {
+      fields.push(`discount = $${idx++}`);
+      values.push(Number(updates.discount));
+    }
+    if (updates.stock !== undefined) {
+      fields.push(`stock = $${idx++}`);
+      values.push(Number(updates.stock));
+    }
+    if (updates.sku !== undefined) {
+      fields.push(`sku = $${idx++}`);
+      values.push(updates.sku);
+    }
+    if (updates.status !== undefined) {
+      fields.push(`status = $${idx++}`);
+      values.push(updates.status);
+      fields.push(`is_active = $${idx++}`);
+      values.push(updates.status !== 'UNPUBLISHED');
+    }
+    if (updates.isFeatured !== undefined) {
+      fields.push(`is_featured = $${idx++}`);
+      values.push(Boolean(updates.isFeatured));
+    }
+    if (updates.isNewArrival !== undefined) {
+      fields.push(`is_new_arrival = $${idx++}`);
+      values.push(Boolean(updates.isNewArrival));
+    }
+    if (updates.isBestseller !== undefined) {
+      fields.push(`is_bestseller = $${idx++}`);
+      values.push(Boolean(updates.isBestseller));
+    }
+    if (updates.images !== undefined) {
+      fields.push(`images = $${idx++}`);
+      values.push(JSON.stringify(updates.images));
+    }
+    if (updates.sizes !== undefined) {
+      fields.push(`sizes = $${idx++}`);
+      values.push(JSON.stringify(updates.sizes));
+    }
+    if (updates.colors !== undefined) {
+      fields.push(`colors = $${idx++}`);
+      values.push(JSON.stringify(updates.colors));
+    }
+    if (updates.material !== undefined) {
+      fields.push(`material = $${idx++}`);
+      values.push(updates.material);
+    }
+    if (updates.careInstructions !== undefined) {
+      fields.push(`care_instructions = $${idx++}`);
+      values.push(updates.careInstructions);
+    }
+
+    values.push(id);
+    const query = `UPDATE products SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`;
+    const res = await this.pool.query(query, values);
+
+    return mapProductRow(res.rows[0]);
   }
 
   public async deleteProduct(id: string) {
-    const idx = this.products.findIndex((p) => p.id === id);
-    if (idx === -1) return false;
-    this.products.splice(idx, 1);
-    return true;
+    await this.initDatabase();
+    const res = await this.pool.query('DELETE FROM products WHERE id = $1', [id]);
+    return (res.rowCount ?? 0) > 0;
   }
 
   public async getCategories() {
-    return [...this.categories];
+    await this.initDatabase();
+    const res = await this.pool.query('SELECT id, name, slug, image FROM categories ORDER BY name ASC');
+    return res.rows;
   }
 
   // --- ORDERS & TRANSACTIONAL CHECKOUT ---
@@ -380,44 +526,81 @@ class DatabaseManager {
     limit?: number;
     offset?: number;
   }) {
-    let list = [...this.orders];
-    if (filters?.userId) {
-      list = list.filter((o) => o.userId === filters.userId);
-    }
-    if (filters?.status && filters.status !== 'ALL') {
-      list = list.filter((o) => o.orderStatus === filters.status || o.status === filters.status);
-    }
-    list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    await this.initDatabase();
 
-    const total = list.length;
-    const offset = filters?.offset || 0;
+    const conditions: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+
+    if (filters?.userId) {
+      conditions.push(`user_id = $${idx++}`);
+      values.push(filters.userId);
+    }
+
+    if (filters?.status && filters.status.toUpperCase() !== 'ALL') {
+      conditions.push(`(order_status = $${idx} OR status = $${idx})`);
+      values.push(filters.status.toUpperCase());
+      idx++;
+    }
+
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const countRes = await this.pool.query(`SELECT COUNT(*)::int as total FROM orders ${whereClause}`, values);
+    const total = countRes.rows[0]?.total || 0;
+
     const limit = filters?.limit || 100;
-    return { orders: list.slice(offset, offset + limit), total };
+    const offset = filters?.offset || 0;
+
+    const query = `
+      SELECT * FROM orders
+      ${whereClause}
+      ORDER BY created_at DESC
+      LIMIT $${idx++} OFFSET $${idx++}
+    `;
+    const res = await this.pool.query(query, [...values, limit, offset]);
+
+    return {
+      orders: res.rows.map(mapOrderRow),
+      total
+    };
   }
 
   public async getOrderById(id: string) {
-    return this.orders.find((o) => o.id === id || o.invoiceNumber === id || o.trackingNumber === id) || null;
+    await this.initDatabase();
+    const res = await this.pool.query(
+      'SELECT * FROM orders WHERE id = $1 OR invoice_number = $1 OR tracking_number = $1 OR razorpay_order_id = $1',
+      [id]
+    );
+    return mapOrderRow(res.rows[0]);
   }
 
   public async trackOrder(query: string, mobileNumber?: string) {
-    const cleanQuery = query.trim().toUpperCase();
-    const order = this.orders.find((o) => {
-      const matchId = o.id.toUpperCase() === cleanQuery;
-      const matchTrack = o.trackingNumber?.toUpperCase() === cleanQuery;
-      const matchInvoice = o.invoiceNumber?.toUpperCase() === cleanQuery;
-      const matchMobile = mobileNumber ? o.customer?.mobileNumber?.includes(mobileNumber.replace(/\D/g, '').slice(-10)) : true;
-      return (matchId || matchTrack || matchInvoice) && matchMobile;
-    });
-    return order || null;
+    await this.initDatabase();
+    const clean = query.trim().toUpperCase();
+
+    let sql = `
+      SELECT * FROM orders
+      WHERE (UPPER(id) = $1 OR UPPER(tracking_number) = $1 OR UPPER(invoice_number) = $1)
+    `;
+    const params: any[] = [clean];
+
+    if (mobileNumber) {
+      const cleanDigits = mobileNumber.replace(/\D/g, '').slice(-10);
+      sql += ` AND (customer->>'mobileNumber' LIKE '%' || $2)`;
+      params.push(cleanDigits);
+    }
+
+    sql += ' ORDER BY created_at DESC LIMIT 1';
+    const res = await this.pool.query(sql, params);
+    return mapOrderRow(res.rows[0]);
   }
 
   /**
-   * Transactional Order Creation:
-   * 1. Validates product existence and stock availability
-   * 2. Recalculates all pricing server-side (never trusts client price totals)
-   * 3. Atomically decrements product stock to prevent overselling
-   * 4. Calculates GST tax breakdown
-   * 5. Creates Order, OrderItems, OrderStatusHistory, and Invoice records
+   * Real PostgreSQL Transactional Checkout:
+   * 1. Acquires row locks on products using SELECT ... FOR UPDATE
+   * 2. Validates live inventory
+   * 3. Calculates pricing and taxes server-side
+   * 4. Atomically decrements product stock in PostgreSQL
+   * 5. Inserts Order into orders table with initial timeline event
    */
   public async createOrder(orderPayload: {
     userId?: string;
@@ -447,138 +630,172 @@ class DatabaseManager {
     couponCode?: string;
     customerNote?: string;
   }) {
+    await this.initDatabase();
+
     if (!orderPayload.items || orderPayload.items.length === 0) {
       throw new Error('Order must contain at least one item.');
     }
 
-    // Step 1: Validate stock and load verified products
-    const verifiedItems: any[] = [];
-    let calculatedSubtotal = 0;
+    const client: PoolClient = await this.pool.connect();
 
-    for (const item of orderPayload.items) {
-      const product = this.products.find((p) => p.id === item.productId);
-      if (!product) {
-        throw new Error(`Product with ID "${item.productId}" was not found.`);
+    try {
+      await client.query('BEGIN');
+
+      const verifiedItems: any[] = [];
+      let calculatedSubtotal = 0;
+
+      // 1. Lock and verify each product row
+      for (const item of orderPayload.items) {
+        const prodRes = await client.query(
+          'SELECT * FROM products WHERE id = $1 FOR UPDATE',
+          [item.productId]
+        );
+
+        if (prodRes.rows.length === 0) {
+          throw new Error(`Product with ID "${item.productId}" was not found in catalog.`);
+        }
+
+        const product = mapProductRow(prodRes.rows[0])!;
+        if (product.stock < item.quantity) {
+          throw new Error(
+            `Insufficient stock for "${product.name}". Available: ${product.stock}, Requested: ${item.quantity}.`
+          );
+        }
+
+        const itemTotal = product.price * item.quantity;
+        calculatedSubtotal += itemTotal;
+
+        verifiedItems.push({
+          productId: product.id,
+          name: product.name,
+          sku: product.sku,
+          image: product.images[0] || 'https://images.unsplash.com/photo-1602810318383-e386cc2a3ccf?auto=format&fit=crop&w=800&q=80',
+          price: product.price,
+          mrp: product.mrp,
+          quantity: item.quantity,
+          selectedSize: item.selectedSize,
+          selectedColor: item.selectedColor,
+          product: { ...product }
+        });
       }
-      if (product.stock < item.quantity) {
-        throw new Error(
-          `Insufficient stock for "${product.name}". Available: ${product.stock}, Requested: ${item.quantity}.`
+
+      // 2. Validate coupon
+      let couponDiscount = 0;
+      if (orderPayload.couponCode) {
+        const cleanCode = orderPayload.couponCode.trim().toUpperCase();
+        const cRes = await client.query(
+          'SELECT * FROM coupons WHERE UPPER(code) = $1 AND is_active = true FOR UPDATE',
+          [cleanCode]
+        );
+
+        if (cRes.rows.length > 0) {
+          const coupon = cRes.rows[0];
+          const minOrder = Number(coupon.min_order_amount || 0);
+          if (calculatedSubtotal >= minOrder) {
+            if (coupon.discount_type === 'PERCENTAGE') {
+              const val = Math.round((calculatedSubtotal * Number(coupon.discount_value)) / 100);
+              const maxD = Number(coupon.max_discount_amount);
+              couponDiscount = maxD && val > maxD ? maxD : val;
+            } else {
+              couponDiscount = Math.min(Number(coupon.discount_value), calculatedSubtotal);
+            }
+
+            // Increment usage count
+            await client.query('UPDATE coupons SET usage_count = usage_count + 1 WHERE id = $1', [coupon.id]);
+          }
+        }
+      }
+
+      // 3. Shipping & GST Calculations
+      const deliveryCharge = calculatedSubtotal >= 999 ? 0 : 49;
+      const grandTotal = Math.max(0, calculatedSubtotal + deliveryCharge - couponDiscount);
+      const taxRate = 5; // 5% GST for apparel
+      const taxableAmount = Math.round((grandTotal / (1 + taxRate / 100)) * 100) / 100;
+      const totalGst = Math.round((grandTotal - taxableAmount) * 100) / 100;
+      const cgst = Math.round((totalGst / 2) * 100) / 100;
+      const sgst = cgst;
+
+      // 4. Atomically decrement stock in PostgreSQL
+      for (const item of orderPayload.items) {
+        await client.query(
+          'UPDATE products SET stock = GREATEST(0, stock - $1), updated_at = NOW() WHERE id = $2',
+          [item.quantity, item.productId]
         );
       }
 
-      const itemTotalPrice = product.price * item.quantity;
-      calculatedSubtotal += itemTotalPrice;
+      // 5. Generate identifiers
+      const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+      const orderId = `FP-2026-${Date.now().toString().slice(-4)}${randomSuffix.toString().slice(-2)}`;
+      const invoiceNumber = `INV-FP-2026-${Date.now().toString().slice(-6)}`;
+      const trackingNumber = `DEL-${Date.now().toString().slice(-7)}`;
 
-      verifiedItems.push({
-        productId: product.id,
-        name: product.name,
-        sku: product.sku,
-        image: product.images[0],
-        price: product.price,
-        mrp: product.mrp,
-        quantity: item.quantity,
-        selectedSize: item.selectedSize,
-        selectedColor: item.selectedColor,
-        product: { ...product }
-      });
-    }
+      const initialTimelineEvent = {
+        status: 'NEW',
+        title: orderPayload.paymentMethod === 'COD' ? 'Order Placed (Cash on Delivery)' : 'Order Placed (Pending Payment Confirmation)',
+        description: orderPayload.paymentMethod === 'COD'
+          ? `Order confirmed. Delivery partner will collect ₹${grandTotal} in cash at doorstep.`
+          : 'Payment transaction initiated via secure gateway.',
+        timestamp: new Date().toISOString(),
+        location: 'Fashion Point Fulfilment Centre, Madhya Pradesh'
+      };
 
-    // Step 2: Calculate coupon discount server-side
-    let couponDiscount = 0;
-    if (orderPayload.couponCode) {
-      const couponRes = await this.validateCoupon(orderPayload.couponCode, calculatedSubtotal);
-      if (couponRes.valid) {
-        couponDiscount = couponRes.discount;
-      }
-    }
-
-    // Step 3: Calculate Shipping & Taxes
-    const freeShippingThreshold = this.settings.freeShippingThreshold ?? 999;
-    const standardShipping = this.settings.standardShippingFee ?? 49;
-    const deliveryCharge = calculatedSubtotal >= freeShippingThreshold ? 0 : standardShipping;
-
-    const grandTotal = Math.max(0, calculatedSubtotal + deliveryCharge - couponDiscount);
-
-    // GST Calculation: Configurable rate (default 5% on apparel)
-    const taxRate = this.settings.defaultTaxRate ?? 5;
-    const taxableAmount = Math.round((grandTotal / (1 + taxRate / 100)) * 100) / 100;
-    const totalGst = Math.round((grandTotal - taxableAmount) * 100) / 100;
-    const cgst = Math.round((totalGst / 2) * 100) / 100;
-    const sgst = cgst;
-
-    // Step 4: Atomically decrement stock
-    for (const vItem of verifiedItems) {
-      const pIdx = this.products.findIndex((p) => p.id === vItem.productId);
-      if (pIdx !== -1) {
-        this.products[pIdx].stock = Math.max(0, this.products[pIdx].stock - vItem.quantity);
-      }
-    }
-
-    // Step 5: Generate Sequential Unique Identifiers
-    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-    const orderId = `FP-2026-${Date.now().toString().slice(-4)}${randomSuffix.toString().slice(-2)}`;
-    const invoiceNumber = `INV-FP-2026-${Date.now().toString().slice(-6)}`;
-    const trackingNumber = `DEL-${Date.now().toString().slice(-7)}`;
-
-    const initialTimelineEvent = {
-      status: 'NEW',
-      title: orderPayload.paymentMethod === 'COD' ? 'Order Placed (Cash on Delivery)' : 'Order Placed (Pending Payment Confirmation)',
-      description: orderPayload.paymentMethod === 'COD'
-        ? `Order confirmed. Delivery agent will collect ₹${grandTotal} in cash at doorstep.`
-        : 'Payment transaction initiated via secure gateway.',
-      timestamp: new Date().toISOString(),
-      location: 'Fashion Point Fulfilment Centre, Madhya Pradesh'
-    };
-
-    const newOrder = {
-      id: orderId,
-      userId: orderPayload.userId || null,
-      orderStatus: 'NEW',
-      status: 'NEW',
-      paymentMethod: orderPayload.paymentMethod,
-      paymentStatus: 'PENDING',
-      customer: orderPayload.customer,
-      shippingAddress: orderPayload.shippingAddress,
-      items: verifiedItems,
-      pricing: {
+      const pricing = {
         subtotal: calculatedSubtotal,
         deliveryCharge,
         discount: couponDiscount,
         grandTotal
-      },
-      totalAmount: grandTotal,
-      taxBreakdown: {
+      };
+
+      const taxBreakdown = {
         taxableAmount,
         cgst,
         sgst,
         totalGst
-      },
-      courierName: 'Delhivery Express',
-      trackingNumber,
-      awbNumber: trackingNumber,
-      invoiceNumber,
-      estimatedDelivery: '3 - 5 Business Days',
-      timeline: [initialTimelineEvent],
-      customerNote: orderPayload.customerNote || null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
+      };
 
-    this.orders.unshift(newOrder);
+      const insertRes = await client.query(
+        `INSERT INTO orders (
+          id, user_id, order_status, status, payment_method, payment_status, customer,
+          shipping_address, items, pricing, total_amount, tax_breakdown, courier_name,
+          tracking_number, awb_number, invoice_number, estimated_delivery, timeline,
+          customer_note, created_at, updated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7,
+          $8, $9, $10, $11, $12, $13,
+          $14, $15, $16, $17, $18,
+          $19, NOW(), NOW()
+        ) RETURNING *`,
+        [
+          orderId,
+          orderPayload.userId || null,
+          'NEW',
+          'NEW',
+          orderPayload.paymentMethod,
+          'PENDING',
+          JSON.stringify(orderPayload.customer),
+          JSON.stringify(orderPayload.shippingAddress),
+          JSON.stringify(verifiedItems),
+          JSON.stringify(pricing),
+          grandTotal,
+          JSON.stringify(taxBreakdown),
+          'Delhivery Express',
+          trackingNumber,
+          trackingNumber,
+          invoiceNumber,
+          '3 - 5 Business Days',
+          JSON.stringify([initialTimelineEvent]),
+          orderPayload.customerNote || null
+        ]
+      );
 
-    // Record notification event
-    this.notifications.push({
-      id: `ntf-${Date.now()}`,
-      orderId: newOrder.id,
-      channel: 'SMS',
-      recipient: newOrder.customer.mobileNumber,
-      title: `Fashion Point: Order ${newOrder.id} Placed`,
-      message: `Dear ${newOrder.customer.fullName}, your order ${newOrder.id} of ₹${newOrder.pricing.grandTotal} is received! Track: https://fashionpoint.store/order-tracking/${newOrder.id}`,
-      status: process.env.SMS_PROVIDER_KEY ? 'SENT' : 'UNCONFIGURED',
-      timestamp: new Date().toISOString()
-    });
-
-    return newOrder;
+      await client.query('COMMIT');
+      return mapOrderRow(insertRes.rows[0]);
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
   }
 
   public async updateOrderStatus(
@@ -588,13 +805,12 @@ class DatabaseManager {
     awbNumber?: string,
     note?: string
   ) {
-    const idx = this.orders.findIndex((o) => o.id === orderId);
-    if (idx === -1) return null;
-
-    const currentOrder = this.orders[idx];
+    await this.initDatabase();
     const upperStatus = status.toUpperCase();
 
-    // Map descriptions
+    const currentOrder = await this.getOrderById(orderId);
+    if (!currentOrder) return null;
+
     const descriptions: Record<string, string> = {
       NEW: 'Order received and logged in system.',
       CONFIRMED: 'Order accepted by store manager. Garments allocated for packing.',
@@ -620,122 +836,198 @@ class DatabaseManager {
       paymentStatus = 'REFUNDED';
     }
 
-    const updated = {
-      ...currentOrder,
-      orderStatus: upperStatus,
-      status: upperStatus,
-      paymentStatus,
-      courierName: courierName || currentOrder.courierName,
-      awbNumber: awbNumber || currentOrder.awbNumber,
-      trackingNumber: awbNumber || currentOrder.trackingNumber,
-      adminNote: note || currentOrder.adminNote,
-      timeline: [...currentOrder.timeline, newTimelineEvent],
-      updatedAt: new Date().toISOString()
+    const updatedTimeline = [...(currentOrder.timeline || []), newTimelineEvent];
+    const finalCourier = courierName || currentOrder.courierName;
+    const finalAwb = awbNumber || currentOrder.awbNumber;
+
+    const res = await this.pool.query(
+      `UPDATE orders SET
+        order_status = $1,
+        status = $1,
+        payment_status = $2,
+        courier_name = $3,
+        awb_number = $4,
+        tracking_number = $4,
+        admin_note = $5,
+        timeline = $6,
+        updated_at = NOW()
+       WHERE id = $7 RETURNING *`,
+      [upperStatus, paymentStatus, finalCourier, finalAwb, note || currentOrder.adminNote, JSON.stringify(updatedTimeline), orderId]
+    );
+
+    return mapOrderRow(res.rows[0]);
+  }
+
+  public async updateOrderPaymentVerified(
+    orderId: string,
+    data: {
+      razorpayOrderId: string;
+      razorpayPaymentId: string;
+      paymentDetails: any;
+    }
+  ) {
+    await this.initDatabase();
+    const currentOrder = await this.getOrderById(orderId);
+    if (!currentOrder) return null;
+
+    const paymentTimelineEvent = {
+      status: 'PAID',
+      title: 'Payment Received',
+      description: `Online payment of ₹${currentOrder.pricing?.grandTotal || currentOrder.totalAmount} captured successfully via Razorpay (Ref: ${data.razorpayPaymentId}).`,
+      timestamp: new Date().toISOString(),
+      location: 'Razorpay Gateway'
     };
 
-    this.orders[idx] = updated;
-    return updated;
+    const updatedTimeline = [...(currentOrder.timeline || []), paymentTimelineEvent];
+
+    const res = await this.pool.query(
+      `UPDATE orders SET
+        payment_status = 'PAID',
+        order_status = 'CONFIRMED',
+        status = 'CONFIRMED',
+        razorpay_order_id = $1,
+        razorpay_payment_id = $2,
+        payment_details = $3,
+        timeline = $4,
+        updated_at = NOW()
+       WHERE id = $5 RETURNING *`,
+      [
+        data.razorpayOrderId,
+        data.razorpayPaymentId,
+        JSON.stringify(data.paymentDetails),
+        JSON.stringify(updatedTimeline),
+        orderId
+      ]
+    );
+
+    return mapOrderRow(res.rows[0]);
   }
 
   // --- COUPONS ---
   public async getCoupons() {
-    return [...this.coupons];
+    await this.initDatabase();
+    const res = await this.pool.query('SELECT * FROM coupons ORDER BY created_at DESC');
+    return res.rows.map((r) => ({
+      id: r.id,
+      code: r.code,
+      discountType: r.discount_type,
+      discountValue: Number(r.discount_value),
+      minOrderAmount: Number(r.min_order_amount || 0),
+      maxDiscountAmount: r.max_discount_amount ? Number(r.max_discount_amount) : undefined,
+      usageLimit: Number(r.usage_limit || 500),
+      usageCount: Number(r.usage_count || 0),
+      isActive: Boolean(r.is_active),
+      expiresAt: r.expires_at ? new Date(r.expires_at).toISOString() : null,
+      createdAt: r.created_at ? new Date(r.created_at).toISOString() : new Date().toISOString()
+    }));
   }
 
   public async validateCoupon(code: string, subtotal: number) {
+    await this.initDatabase();
     const clean = code.trim().toUpperCase();
-    const coupon = this.coupons.find((c) => c.code === clean && c.isActive);
+    const res = await this.pool.query(
+      'SELECT * FROM coupons WHERE UPPER(code) = $1 AND is_active = true',
+      [clean]
+    );
 
-    if (!coupon) {
+    if (res.rows.length === 0) {
       return { valid: false, discount: 0, message: 'Invalid or inactive coupon code.' };
     }
 
-    if (coupon.minOrderAmount && subtotal < coupon.minOrderAmount) {
+    const coupon = res.rows[0];
+    const minOrder = Number(coupon.min_order_amount || 0);
+
+    if (subtotal < minOrder) {
       return {
         valid: false,
         discount: 0,
-        message: `Coupon requires a minimum purchase of ₹${coupon.minOrderAmount}. Current subtotal is ₹${subtotal}.`
+        message: `Coupon requires a minimum purchase of ₹${minOrder}. Current subtotal is ₹${subtotal}.`
       };
     }
 
     let discount = 0;
-    if (coupon.discountType === 'PERCENTAGE') {
-      discount = Math.round((subtotal * coupon.discountValue) / 100);
-      if (coupon.maxDiscountAmount && discount > coupon.maxDiscountAmount) {
-        discount = coupon.maxDiscountAmount;
+    if (coupon.discount_type === 'PERCENTAGE') {
+      discount = Math.round((subtotal * Number(coupon.discount_value)) / 100);
+      const maxDiscount = Number(coupon.max_discount_amount);
+      if (maxDiscount && discount > maxDiscount) {
+        discount = maxDiscount;
       }
     } else {
-      discount = Math.min(coupon.discountValue, subtotal);
+      discount = Math.min(Number(coupon.discount_value), subtotal);
     }
 
     return {
       valid: true,
       discount,
       message: `Success! You saved ₹${discount} with ${coupon.code}.`,
-      coupon
+      coupon: {
+        id: coupon.id,
+        code: coupon.code,
+        discountType: coupon.discount_type,
+        discountValue: Number(coupon.discount_value)
+      }
     };
   }
 
-  // --- REAL DASHBOARD METRICS ---
+  // --- DASHBOARD REAL SQL METRICS ---
   public async getStats(): Promise<DbStats> {
-    const totalOrders = this.orders.length;
-    const totalSales = this.orders
-      .filter((o) => o.orderStatus !== 'CANCELLED')
-      .reduce((sum, o) => sum + (o.totalAmount || o.pricing?.grandTotal || 0), 0);
+    await this.initDatabase();
 
-    // Today's Sales: Real Date Comparison (Orders placed between 00:00:00 and 23:59:59 of today's date)
-    const today = new Date();
-    const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-    const endOfToday = startOfToday + 24 * 60 * 60 * 1000;
+    const ordersRes = await this.pool.query(`
+      SELECT
+        COUNT(*)::int as total_orders,
+        COALESCE(SUM(CASE WHEN order_status != 'CANCELLED' THEN total_amount ELSE 0 END), 0)::int as total_sales,
+        COALESCE(SUM(CASE WHEN order_status != 'CANCELLED' AND created_at >= CURRENT_DATE THEN total_amount ELSE 0 END), 0)::int as today_sales,
+        COUNT(CASE WHEN order_status NOT IN ('DELIVERED', 'CANCELLED') THEN 1 END)::int as pending_orders,
+        COUNT(CASE WHEN order_status = 'DELIVERED' THEN 1 END)::int as delivered_orders,
+        COUNT(CASE WHEN order_status = 'CANCELLED' THEN 1 END)::int as cancelled_orders,
+        COUNT(DISTINCT customer->>'mobileNumber')::int as total_customers
+      FROM orders
+    `);
 
-    const todayOrders = this.orders.filter((o) => {
-      const orderTime = new Date(o.createdAt).getTime();
-      return orderTime >= startOfToday && orderTime < endOfToday && o.orderStatus !== 'CANCELLED';
-    });
+    const productsRes = await this.pool.query(`
+      SELECT
+        COUNT(*)::int as total_products,
+        COUNT(CASE WHEN stock < 5 THEN 1 END)::int as low_stock_count
+      FROM products
+    `);
 
-    const todaySales = todayOrders.reduce((sum, o) => sum + (o.totalAmount || o.pricing?.grandTotal || 0), 0);
-
-    const pendingOrders = this.orders.filter(
-      (o) => !['DELIVERED', 'CANCELLED'].includes(o.orderStatus?.toUpperCase())
-    ).length;
-
-    const deliveredOrders = this.orders.filter(
-      (o) => o.orderStatus?.toUpperCase() === 'DELIVERED'
-    ).length;
-
-    const cancelledOrders = this.orders.filter(
-      (o) => o.orderStatus?.toUpperCase() === 'CANCELLED'
-    ).length;
-
-    const totalCustomers = this.users.length;
-    const totalProducts = this.products.length;
-    const lowStockCount = this.products.filter((p) => p.stock < 5).length;
+    const oRow = ordersRes.rows[0] || {};
+    const pRow = productsRes.rows[0] || {};
 
     return {
-      totalSales,
-      todaySales,
-      totalOrders,
-      pendingOrders,
-      deliveredOrders,
-      cancelledOrders,
-      totalCustomers,
-      totalProducts,
-      lowStockCount
+      totalSales: oRow.total_sales || 0,
+      todaySales: oRow.today_sales || 0,
+      totalOrders: oRow.total_orders || 0,
+      pendingOrders: oRow.pending_orders || 0,
+      deliveredOrders: oRow.delivered_orders || 0,
+      cancelledOrders: oRow.cancelled_orders || 0,
+      totalCustomers: oRow.total_customers || 0,
+      totalProducts: pRow.total_products || 0,
+      lowStockCount: pRow.low_stock_count || 0
     };
   }
 
-  // --- AUTH & USERS ---
+  // --- USERS & AUTH ---
   public async getUserByEmailOrMobile(identifier: string) {
+    await this.initDatabase();
     const clean = identifier.trim().toLowerCase();
-    return (
-      this.users.find(
-        (u) => u.email?.toLowerCase() === clean || u.mobile?.replace(/\D/g, '') === clean.replace(/\D/g, '')
-      ) || null
+    const res = await this.pool.query(
+      `SELECT id, uid, email, phone, password_hash as "passwordHash", full_name as "fullName", role, is_active as "isActive", created_at as "createdAt"
+       FROM users WHERE LOWER(email) = $1 OR phone = $1 OR phone = $2 LIMIT 1`,
+      [clean, identifier.replace(/\D/g, '').slice(-10)]
     );
+    return res.rows[0] || null;
   }
 
   public async getUserById(id: string) {
-    return this.users.find((u) => u.id === id) || null;
+    await this.initDatabase();
+    const res = await this.pool.query(
+      `SELECT id, uid, email, phone, password_hash as "passwordHash", full_name as "fullName", role, is_active as "isActive", created_at as "createdAt"
+       FROM users WHERE id::text = $1 OR uid = $1 LIMIT 1`,
+      [id]
+    );
+    return res.rows[0] || null;
   }
 
   public async createUser(userData: {
@@ -744,35 +1036,45 @@ class DatabaseManager {
     mobile: string;
     password?: string;
   }) {
-    const existing = await this.getUserByEmailOrMobile(userData.mobile);
-    if (existing) {
-      throw new Error('An account with this mobile number already exists.');
-    }
-
+    await this.initDatabase();
     const passwordHash = userData.password ? bcrypt.hashSync(userData.password, 10) : null;
-    const newUser = {
-      id: `usr-${Date.now()}`,
-      fullName: userData.fullName.trim(),
-      email: userData.email?.trim().toLowerCase() || null,
-      mobile: userData.mobile.trim(),
-      passwordHash,
-      role: 'CUSTOMER',
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
+    const uid = `usr-${Date.now()}`;
 
-    this.users.push(newUser);
-    return newUser;
+    const res = await this.pool.query(
+      `INSERT INTO users (uid, full_name, email, phone, password_hash, role, is_active, created_at)
+       VALUES ($1, $2, $3, $4, $5, 'CUSTOMER', true, NOW())
+       RETURNING id, uid, email, phone as mobile, full_name as "fullName", role, is_active as "isActive", created_at as "createdAt"`,
+      [
+        uid,
+        userData.fullName.trim(),
+        userData.email?.trim().toLowerCase() || null,
+        userData.mobile.trim(),
+        passwordHash
+      ]
+    );
+
+    return res.rows[0];
   }
 
+  // --- ADMINS ---
   public async getAdminByUsername(username: string) {
+    await this.initDatabase();
     const clean = username.trim().toLowerCase();
-    return this.admins.find((a) => a.username.toLowerCase() === clean && a.isActive) || null;
+    const res = await this.pool.query(
+      `SELECT id, username, password_hash as "passwordHash", full_name as "fullName", role, phone, email, is_active as "isActive", created_at as "createdAt", last_login_at as "lastLoginAt"
+       FROM admins WHERE LOWER(username) = $1 AND is_active = true LIMIT 1`,
+      [clean]
+    );
+    return res.rows[0] || null;
   }
 
   public async getAdmins() {
-    return this.admins.map(({ passwordHash, ...safe }) => safe);
+    await this.initDatabase();
+    const res = await this.pool.query(
+      `SELECT id, username, full_name as "fullName", role, phone, email, is_active as "isActive", created_at as "createdAt", last_login_at as "lastLoginAt"
+       FROM admins ORDER BY created_at ASC`
+    );
+    return res.rows;
   }
 
   public async createAdmin(data: {
@@ -783,47 +1085,129 @@ class DatabaseManager {
     phone?: string;
     email?: string;
   }) {
+    await this.initDatabase();
     const existing = await this.getAdminByUsername(data.username);
     if (existing) {
       throw new Error(`Username "${data.username}" is already taken.`);
     }
 
     const passwordHash = bcrypt.hashSync(data.password.trim(), 10);
-    const newAdmin = {
-      id: `ADM-${Math.floor(100 + Math.random() * 900)}`,
-      username: data.username.trim().toLowerCase(),
-      passwordHash,
-      fullName: data.fullName.trim(),
-      role: data.role || 'STORE_MANAGER',
-      phone: data.phone?.trim() || null,
-      email: data.email?.trim() || null,
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      lastLoginAt: null
-    };
+    const id = `ADM-${Math.floor(100 + Math.random() * 900)}`;
 
-    this.admins.push(newAdmin);
-    const { passwordHash: _, ...safe } = newAdmin;
-    return safe;
+    const res = await this.pool.query(
+      `INSERT INTO admins (id, username, password_hash, full_name, role, phone, email, is_active, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, true, NOW())
+       RETURNING id, username, full_name as "fullName", role, phone, email, is_active as "isActive", created_at as "createdAt"`,
+      [
+        id,
+        data.username.trim().toLowerCase(),
+        passwordHash,
+        data.fullName.trim(),
+        data.role || 'STORE_MANAGER',
+        data.phone?.trim() || null,
+        data.email?.trim() || null
+      ]
+    );
+
+    return res.rows[0];
   }
 
   public async updateAdminPassword(adminId: string, newPassword: string) {
-    const admin = this.admins.find((a) => a.id === adminId);
-    if (!admin) return false;
-    admin.passwordHash = bcrypt.hashSync(newPassword.trim(), 10);
-    admin.updatedAt = new Date().toISOString();
-    return true;
+    await this.initDatabase();
+    const passwordHash = bcrypt.hashSync(newPassword.trim(), 10);
+    const res = await this.pool.query(
+      'UPDATE admins SET password_hash = $1 WHERE id = $2',
+      [passwordHash, adminId]
+    );
+    return (res.rowCount ?? 0) > 0;
+  }
+
+  public async updateAdmin(adminId: string, updates: {
+    isActive?: boolean;
+    role?: string;
+    fullName?: string;
+    phone?: string;
+    email?: string;
+    password?: string;
+  }) {
+    await this.initDatabase();
+    const fields: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+
+    if (updates.isActive !== undefined) {
+      fields.push(`is_active = $${idx++}`);
+      values.push(updates.isActive);
+    }
+    if (updates.role !== undefined) {
+      fields.push(`role = $${idx++}`);
+      values.push(updates.role);
+    }
+    if (updates.fullName !== undefined) {
+      fields.push(`full_name = $${idx++}`);
+      values.push(updates.fullName);
+    }
+    if (updates.phone !== undefined) {
+      fields.push(`phone = $${idx++}`);
+      values.push(updates.phone);
+    }
+    if (updates.email !== undefined) {
+      fields.push(`email = $${idx++}`);
+      values.push(updates.email);
+    }
+    if (updates.password) {
+      fields.push(`password_hash = $${idx++}`);
+      values.push(bcrypt.hashSync(updates.password.trim(), 10));
+    }
+
+    if (fields.length === 0) return true;
+
+    values.push(adminId);
+    const query = `UPDATE admins SET ${fields.join(', ')} WHERE id = $${idx}`;
+    const res = await this.pool.query(query, values);
+    return (res.rowCount ?? 0) > 0;
+  }
+
+  public async deleteAdmin(adminId: string) {
+    await this.initDatabase();
+    const res = await this.pool.query('DELETE FROM admins WHERE id = $1', [adminId]);
+    return (res.rowCount ?? 0) > 0;
   }
 
   // --- SETTINGS ---
   public async getSettings() {
-    return { ...this.settings };
+    await this.initDatabase();
+    const res = await this.pool.query('SELECT settings FROM store_settings WHERE id = $1', ['default']);
+    if (res.rows.length === 0) {
+      return {
+        storeName: STORE_CONFIG.name,
+        tagline: STORE_CONFIG.tagline,
+        contactEmail: STORE_CONFIG.email,
+        supportPhone: STORE_CONFIG.phone,
+        ownerName: 'Meraj Alam',
+        gstin: STORE_CONFIG.gstin,
+        defaultTaxRate: 5,
+        freeShippingThreshold: STORE_CONFIG.freeShippingThreshold,
+        standardShippingFee: 49,
+        isCodEnabled: true,
+        isOnlinePaymentEnabled: true,
+        address: STORE_CONFIG.address
+      };
+    }
+    return typeof res.rows[0].settings === 'string' ? JSON.parse(res.rows[0].settings) : res.rows[0].settings;
   }
 
   public async updateSettings(updates: Record<string, any>) {
-    this.settings = { ...this.settings, ...updates };
-    return { ...this.settings };
+    await this.initDatabase();
+    const current = await this.getSettings();
+    const merged = { ...current, ...updates };
+
+    await this.pool.query(
+      'INSERT INTO store_settings (id, settings, updated_at) VALUES ($1, $2, NOW()) ON CONFLICT (id) DO UPDATE SET settings = $2, updated_at = NOW()',
+      ['default', JSON.stringify(merged)]
+    );
+    return merged;
   }
 }
 
-export const db = new DatabaseManager();
+export const db = new PostgresDatabaseManager();

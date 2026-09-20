@@ -1,13 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Order } from '../../../types';
-import { storeDb } from '../../../database/store';
+import { apiClient } from '../../../api/client';
 import { PrintInvoiceModal } from '../../../invoice/print/PrintInvoiceModal';
 import { FileText, Printer, Search, IndianRupee, Download } from 'lucide-react';
 
 export const AdminInvoicesPage: React.FC = () => {
-  const [orders, setOrders] = useState<Order[]>(storeDb.getOrders());
+  const [orders, setOrders] = useState<Order[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedInvoiceOrder, setSelectedInvoiceOrder] = useState<Order | null>(null);
+
+  useEffect(() => {
+    const fetchInvoices = async () => {
+      try {
+        const res = await apiClient.orders.list({ limit: 100 });
+        if (res?.orders) {
+          setOrders(res.orders);
+        }
+      } catch (err) {
+        console.error('Failed to load invoice orders:', err);
+      }
+    };
+    fetchInvoices();
+  }, []);
 
   const totalGrossInvoiced = orders.reduce((sum, o) => sum + (o.totalAmount ?? o.pricing?.grandTotal ?? 0), 0);
   const totalGstCollected = orders.reduce((sum, o) => sum + (o.taxBreakdown?.totalGst || 0), 0);

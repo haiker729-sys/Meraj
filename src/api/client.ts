@@ -83,11 +83,34 @@ export const apiClient = {
   },
 
   adminAuth: {
-    login: (username: string, password: string) =>
-      request<{ success: boolean; token: string; admin: any }>('/admin/auth/login', {
+    login: async (username: string, password: string) => {
+      const res = await request<{ success: boolean; token: string; admin: any }>('/admin/auth/login', {
         method: 'POST',
         body: JSON.stringify({ username, password })
-      }),
+      });
+      if (res?.token) {
+        setAdminToken(res.token);
+        if (typeof window !== 'undefined' && res.admin) {
+          localStorage.setItem('fp_admin_session_v1', JSON.stringify(res.admin));
+        }
+      }
+      return res;
+    },
+    logout: () => {
+      setAdminToken(null);
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('fp_admin_session_v1');
+      }
+    },
+    getStoredSession: () => {
+      if (typeof window === 'undefined') return null;
+      try {
+        const str = localStorage.getItem('fp_admin_session_v1');
+        return str ? JSON.parse(str) : null;
+      } catch {
+        return null;
+      }
+    },
     getMe: () => request<{ success: boolean; admin: any }>('/admin/auth/me', {}, true),
     list: () => request<{ success: boolean; admins: any[] }>('/admin/auth/list', {}, true),
     create: (data: any) =>
@@ -205,6 +228,21 @@ export const apiClient = {
       request<{ success: boolean; settings: any }>('/admin/settings', {
         method: 'PUT',
         body: JSON.stringify(data)
+      }, true),
+    listAdmins: () => request<{ success: boolean; admins: any[] }>('/admin/users', {}, true),
+    createAdmin: (data: any) =>
+      request<{ success: boolean; admin: any }>('/admin/users', {
+        method: 'POST',
+        body: JSON.stringify(data)
+      }, true),
+    updateAdmin: (id: string, data: any) =>
+      request<{ success: boolean; message: string }>(`/admin/users/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      }, true),
+    deleteAdmin: (id: string) =>
+      request<{ success: boolean; message: string }>(`/admin/users/${id}`, {
+        method: 'DELETE'
       }, true)
   }
 };

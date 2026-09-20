@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CartItem } from '../../../types';
-import { storeDb } from '../../../database/store';
+import { cartManager } from '../../../utils/cartManager';
+import { apiClient } from '../../../api/client';
 import { Trash2, Plus, Minus, ArrowRight, ShoppingBag, Tag, Check, Truck, ArrowLeft } from 'lucide-react';
 
 interface CartPageProps {
@@ -23,15 +24,19 @@ export const CartPage: React.FC<CartPageProps> = ({ cartItems, onNavigate }) => 
   const discountAmount = appliedCoupon ? appliedCoupon.discount : 0;
   const grandTotal = Math.max(0, subtotal + deliveryCharge - discountAmount);
 
-  const handleApplyCoupon = (e: React.FormEvent) => {
+  const handleApplyCoupon = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!couponCode.trim()) return;
-    const res = storeDb.applyCoupon(couponCode, subtotal);
-    if (res.valid) {
-      setAppliedCoupon({ code: couponCode.trim().toUpperCase(), discount: res.discount });
-      setCouponMessage({ text: res.message, isError: false });
-    } else {
-      setCouponMessage({ text: res.message, isError: true });
+    try {
+      const res = await apiClient.coupons.validate(couponCode.trim(), subtotal);
+      if (res.valid) {
+        setAppliedCoupon({ code: couponCode.trim().toUpperCase(), discount: res.discount });
+        setCouponMessage({ text: res.message, isError: false });
+      } else {
+        setCouponMessage({ text: res.message, isError: true });
+      }
+    } catch (err: any) {
+      setCouponMessage({ text: err.message || 'Invalid coupon.', isError: true });
     }
   };
 
@@ -91,7 +96,7 @@ export const CartPage: React.FC<CartPageProps> = ({ cartItems, onNavigate }) => 
                         <h3 className="font-bold text-sm text-neutral-900">{item.product.name}</h3>
                         <button
                           type="button"
-                          onClick={() => storeDb.removeFromCart(index)}
+                          onClick={() => cartManager.removeFromCart(index)}
                           className="p-1 text-neutral-400 hover:text-rose-600 transition-colors"
                           title="Remove item"
                         >
@@ -118,7 +123,7 @@ export const CartPage: React.FC<CartPageProps> = ({ cartItems, onNavigate }) => 
                       <div className="flex items-center border border-neutral-300 rounded-lg">
                         <button
                           type="button"
-                          onClick={() => storeDb.updateCartQuantity(index, item.quantity - 1)}
+                          onClick={() => cartManager.updateQuantity(index, item.quantity - 1)}
                           className="p-1.5 hover:bg-neutral-100 text-neutral-600"
                         >
                           <Minus className="w-3.5 h-3.5" />
@@ -128,7 +133,7 @@ export const CartPage: React.FC<CartPageProps> = ({ cartItems, onNavigate }) => 
                         </span>
                         <button
                           type="button"
-                          onClick={() => storeDb.updateCartQuantity(index, item.quantity + 1)}
+                          onClick={() => cartManager.updateQuantity(index, item.quantity + 1)}
                           className="p-1.5 hover:bg-neutral-100 text-neutral-600"
                         >
                           <Plus className="w-3.5 h-3.5" />

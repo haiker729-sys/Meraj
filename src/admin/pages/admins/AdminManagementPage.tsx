@@ -14,7 +14,7 @@ import {
   UserCheck,
   AlertTriangle
 } from 'lucide-react';
-import { storeDb } from '../../../database/store';
+import { apiClient } from '../../../api/client';
 import { AdminUser, AdminRole } from '../../../types';
 import { AdminAddModal } from './AdminAddModal';
 import { AdminChangePasswordModal } from './AdminChangePasswordModal';
@@ -24,25 +24,29 @@ interface AdminManagementPageProps {
 }
 
 export const AdminManagementPage: React.FC<AdminManagementPageProps> = ({ currentAdmin }) => {
-  const [admins, setAdmins] = useState<AdminUser[]>(storeDb.getAdmins());
+  const [admins, setAdmins] = useState<AdminUser[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [passwordTargetAdmin, setPasswordTargetAdmin] = useState<AdminUser | null>(null);
   const [deleteTargetAdmin, setDeleteTargetAdmin] = useState<AdminUser | null>(null);
   const [statusNotice, setStatusNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const refreshAdmins = () => {
-    setAdmins(storeDb.getAdmins());
+  const refreshAdmins = async () => {
+    try {
+      const res = await apiClient.admin.listAdmins();
+      if (res?.admins) {
+        setAdmins(res.admins);
+      }
+    } catch (err) {
+      console.error('Failed to load admins:', err);
+    }
   };
 
   useEffect(() => {
-    const unsub = storeDb.subscribe(() => {
-      setAdmins(storeDb.getAdmins());
-    });
-    return unsub;
+    refreshAdmins();
   }, []);
 
-  const handleToggleStatus = (admin: AdminUser) => {
+  const handleToggleStatus = async (admin: AdminUser) => {
     if (currentAdmin && admin.id === currentAdmin.id) {
       setStatusNotice({
         type: 'error',
@@ -51,34 +55,48 @@ export const AdminManagementPage: React.FC<AdminManagementPageProps> = ({ curren
       return;
     }
 
-    const res = storeDb.updateAdmin(admin.id, {
-      isActive: !admin.isActive
-    });
-
-    if (res.success) {
-      setStatusNotice({
-        type: 'success',
-        message: `Admin "${admin.username}" status changed to ${!admin.isActive ? 'Active' : 'Inactive'}.`
+    try {
+      const res = await apiClient.admin.updateAdmin(admin.id, {
+        isActive: !admin.isActive
       });
-      refreshAdmins();
+
+      if (res.success) {
+        setStatusNotice({
+          type: 'success',
+          message: `Admin "${admin.username}" status changed to ${!admin.isActive ? 'Active' : 'Inactive'}.`
+        });
+        refreshAdmins();
+      }
+    } catch (err: any) {
+      setStatusNotice({
+        type: 'error',
+        message: err.message || 'Failed to update admin status.'
+      });
     }
   };
 
-  const handleDeleteConfirm = () => {
+  const handleDeleteConfirm = async () => {
     if (!deleteTargetAdmin) return;
 
-    const res = storeDb.deleteAdmin(deleteTargetAdmin.id, currentAdmin?.id);
-    if (res.success) {
-      setStatusNotice({
-        type: 'success',
-        message: res.message
-      });
-      setDeleteTargetAdmin(null);
-      refreshAdmins();
-    } else {
+    try {
+      const res = await apiClient.admin.deleteAdmin(deleteTargetAdmin.id);
+      if (res.success) {
+        setStatusNotice({
+          type: 'success',
+          message: res.message
+        });
+        setDeleteTargetAdmin(null);
+        refreshAdmins();
+      } else {
+        setStatusNotice({
+          type: 'error',
+          message: res.message
+        });
+      }
+    } catch (err: any) {
       setStatusNotice({
         type: 'error',
-        message: res.message
+        message: err.message || 'Failed to delete admin.'
       });
     }
   };

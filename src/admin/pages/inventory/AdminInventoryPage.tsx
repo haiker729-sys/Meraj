@@ -1,33 +1,56 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Product } from '../../../types';
-import { storeDb } from '../../../database/store';
+import { apiClient } from '../../../api/client';
 import { Search, AlertTriangle, Plus, Minus, Check, CheckCircle2 } from 'lucide-react';
 
 export const AdminInventoryPage: React.FC = () => {
-  const [products, setProducts] = useState<Product[]>(storeDb.getProducts());
+  const [products, setProducts] = useState<Product[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [stockFilter, setStockFilter] = useState<'ALL' | 'LOW' | 'OUT'>('ALL');
   const [stockInputs, setStockInputs] = useState<Record<string, number>>({});
   const [savedSuccess, setSavedSuccess] = useState<string | null>(null);
 
+  const fetchProducts = async () => {
+    try {
+      const res = await apiClient.products.list({ limit: 100 });
+      if (res?.products) {
+        setProducts(res.products);
+      }
+    } catch (err) {
+      console.error('Failed to load inventory products:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchProducts();
+  }, []);
+
   const handleStockInputChange = (productId: string, val: number) => {
     setStockInputs((prev) => ({ ...prev, [productId]: Math.max(0, val) }));
   };
 
-  const handleSaveStock = (productId: string) => {
+  const handleSaveStock = async (productId: string) => {
     const newStock = stockInputs[productId];
     if (newStock !== undefined) {
-      storeDb.updateStock(productId, newStock);
-      setProducts(storeDb.getProducts());
-      setSavedSuccess(productId);
-      setTimeout(() => setSavedSuccess(null), 1500);
+      try {
+        await apiClient.products.updateStock(productId, newStock);
+        fetchProducts();
+        setSavedSuccess(productId);
+        setTimeout(() => setSavedSuccess(null), 1500);
+      } catch (err) {
+        console.error('Failed to update stock:', err);
+      }
     }
   };
 
-  const handleQuickAdjust = (product: Product, delta: number) => {
+  const handleQuickAdjust = async (product: Product, delta: number) => {
     const updated = Math.max(0, product.stock + delta);
-    storeDb.updateStock(product.id, updated);
-    setProducts(storeDb.getProducts());
+    try {
+      await apiClient.products.updateStock(product.id, updated);
+      fetchProducts();
+    } catch (err) {
+      console.error('Failed to quick adjust stock:', err);
+    }
   };
 
   const lowStockCount = products.filter((p) => p.stock > 0 && p.stock < 5).length;

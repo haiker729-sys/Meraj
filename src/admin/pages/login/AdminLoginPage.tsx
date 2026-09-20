@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { ShieldCheck, Lock, User, Eye, EyeOff, ArrowRight, ArrowLeft, KeyRound, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { storeDb } from '../../../database/store';
+import { ShieldCheck, Lock, User, Eye, EyeOff, ArrowRight, ArrowLeft, KeyRound, AlertCircle } from 'lucide-react';
+import { apiClient } from '../../../api/client';
 import { AdminUser } from '../../../types';
 
 interface AdminLoginPageProps {
@@ -30,13 +30,14 @@ export const AdminLoginPage: React.FC<AdminLoginPageProps> = ({
     setIsSubmitting(true);
 
     try {
-      const res = await storeDb.verifyAdminLoginAsync(username, password);
+      // Direct PostgreSQL backend authentication (No local fallback)
+      const res = await apiClient.adminAuth.login(username.trim(), password.trim());
       setIsSubmitting(false);
 
-      if (res.success && res.admin) {
+      if (res?.success && res.admin) {
         onLoginSuccess(res.admin);
       } else {
-        setErrorMsg(res.message || 'अमान्य एडमिन यूज़रनेम या पासवर्ड। (Invalid admin credentials)');
+        setErrorMsg((res as any)?.message || (res as any)?.error || 'अमान्य एडमिन यूज़रनेम या पासवर्ड। (Invalid admin credentials)');
       }
     } catch (err: any) {
       setIsSubmitting(false);

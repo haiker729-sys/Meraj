@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Order, Product } from '../../../types';
-import { storeDb } from '../../../database/store';
+import { apiClient } from '../../../api/client';
 import {
   IndianRupee,
   Package,
@@ -25,9 +25,50 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onNavigateTab,
   onSelectOrder
 }) => {
-  const stats = storeDb.getStats();
-  const recentOrders = storeDb.getOrders().slice(0, 5);
-  const products = storeDb.getProducts();
+  const [stats, setStats] = useState({
+    totalSales: 0,
+    todaySales: 0,
+    totalOrders: 0,
+    pendingOrders: 0,
+    deliveredOrders: 0,
+    cancelledOrders: 0,
+    totalCustomers: 0,
+    totalProducts: 0,
+    lowStockCount: 0
+  });
+  const [recentOrders, setRecentOrders] = useState<Order[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        setIsLoading(true);
+        const [statsRes, ordersRes, productsRes] = await Promise.all([
+          apiClient.admin.getStats().catch(() => ({ stats: null })),
+          apiClient.orders.list({ limit: 5 }).catch(() => ({ orders: [] })),
+          apiClient.products.list({ limit: 50 }).catch(() => ({ products: [] }))
+        ]);
+
+        if (statsRes && (statsRes as any).stats) {
+          setStats((statsRes as any).stats);
+        }
+        if (ordersRes && (ordersRes as any).orders) {
+          setRecentOrders((ordersRes as any).orders.slice(0, 5));
+        }
+        if (productsRes && (productsRes as any).products) {
+          setProducts((productsRes as any).products);
+        }
+      } catch (err) {
+        console.error('Failed to load dashboard metrics:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchDashboardData();
+  }, []);
+
   const lowStockItems = products.filter((p) => p.stock < 5);
 
   const [labelOrder, setLabelOrder] = useState<Order | null>(null);

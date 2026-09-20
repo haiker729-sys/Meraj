@@ -1,19 +1,56 @@
-import React, { useState } from 'react';
-import { STORE_CONFIG, INITIAL_COUPONS } from '../../../database/seed/productsData';
+import React, { useState, useEffect } from 'react';
+import { apiClient } from '../../../api/client';
 import { Store, ShieldCheck, Tag, Save, Check } from 'lucide-react';
 
 export const AdminSettingsPage: React.FC = () => {
-  const [storeName, setStoreName] = useState(STORE_CONFIG.name);
-  const [gstin, setGstin] = useState(STORE_CONFIG.gstin);
-  const [phone, setPhone] = useState(STORE_CONFIG.phone);
-  const [email, setEmail] = useState(STORE_CONFIG.email);
+  const [storeName, setStoreName] = useState('Fashion Point');
+  const [gstin, setGstin] = useState('23AAAAF8899A1Z2');
+  const [phone, setPhone] = useState('+91 91131 92837');
+  const [email, setEmail] = useState('care@fashionpoint.in');
   const [freeShippingThreshold, setFreeShippingThreshold] = useState(999);
+  const [coupons, setCoupons] = useState<any[]>([]);
   const [isSaved, setIsSaved] = useState(false);
 
-  const handleSave = (e: React.FormEvent) => {
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const [settingsRes, couponsRes] = await Promise.all([
+          apiClient.admin.getSettings(),
+          apiClient.coupons.list()
+        ]);
+        if (settingsRes?.settings) {
+          const s = settingsRes.settings;
+          if (s.storeName) setStoreName(s.storeName);
+          if (s.gstin) setGstin(s.gstin);
+          if (s.supportPhone) setPhone(s.supportPhone);
+          if (s.contactEmail) setEmail(s.contactEmail);
+          if (s.freeShippingThreshold) setFreeShippingThreshold(s.freeShippingThreshold);
+        }
+        if (couponsRes?.coupons) {
+          setCoupons(couponsRes.coupons);
+        }
+      } catch (err) {
+        console.error('Failed to load settings:', err);
+      }
+    };
+    loadSettings();
+  }, []);
+
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSaved(true);
-    setTimeout(() => setIsSaved(false), 2000);
+    try {
+      await apiClient.admin.updateSettings({
+        storeName,
+        gstin,
+        supportPhone: phone,
+        contactEmail: email,
+        freeShippingThreshold
+      });
+      setIsSaved(true);
+      setTimeout(() => setIsSaved(false), 2500);
+    } catch (err) {
+      console.error('Failed to save settings:', err);
+    }
   };
 
   return (
@@ -89,7 +126,7 @@ export const AdminSettingsPage: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            {INITIAL_COUPONS.map((cp) => (
+            {coupons.map((cp) => (
               <div key={cp.id} className="p-3 bg-neutral-50 rounded-xl border border-neutral-200">
                 <div className="flex items-center justify-between">
                   <span className="font-mono font-bold text-black uppercase bg-neutral-200 px-2 py-0.5 rounded">
@@ -100,10 +137,10 @@ export const AdminSettingsPage: React.FC = () => {
                   </span>
                 </div>
                 <p className="text-neutral-700 mt-2 font-medium">
-                  {cp.discountType === 'PERCENT' || (cp.discountType as any) === 'PERCENTAGE' ? `${cp.discountValue}% OFF` : `₹${cp.discountValue} Flat OFF`}
+                  {cp.discountType === 'PERCENT' || cp.discountType === 'PERCENTAGE' ? `${cp.discountValue}% OFF` : `₹${cp.discountValue} Flat OFF`}
                 </p>
                 <p className="text-[11px] text-neutral-500 mt-0.5">
-                  Min order: ₹{cp.minOrderAmount} • Max discount: ₹{cp.maxDiscount || 'Unlimited'}
+                  Min order: ₹{cp.minOrderAmount || 0} • Max discount: ₹{cp.maxDiscount || 'Unlimited'}
                 </p>
               </div>
             ))}

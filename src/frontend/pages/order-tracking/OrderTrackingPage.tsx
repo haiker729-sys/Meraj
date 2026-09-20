@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Order, OrderStatus } from '../../../types';
-import { storeDb } from '../../../database/store';
+import { apiClient } from '../../../api/client';
 import { PrintInvoiceModal } from '../../../invoice/print/PrintInvoiceModal';
 import {
   Search,
@@ -49,7 +49,7 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({
     }
   }, [initialOrderId, initialMobile]);
 
-  const handleSearchSubmit = (e?: React.FormEvent) => {
+  const handleSearchSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setErrorMsg(null);
     setHasSearched(true);
@@ -60,12 +60,17 @@ export const OrderTrackingPage: React.FC<OrderTrackingPageProps> = ({
       return;
     }
 
-    const order = storeDb.findOrder(orderId.trim(), mobileNumber.trim());
-    if (order) {
-      setSearchedOrder(order);
-    } else {
+    try {
+      const res = await apiClient.orders.track(orderId.trim(), mobileNumber.trim());
+      if (res?.order) {
+        setSearchedOrder(res.order);
+      } else {
+        setSearchedOrder(null);
+        setErrorMsg('No order found matching this Order ID and Mobile Number combination.');
+      }
+    } catch (err: any) {
       setSearchedOrder(null);
-      setErrorMsg('No order found matching this Order ID and Mobile Number combination.');
+      setErrorMsg(err.message || 'No order found matching this Order ID and Mobile Number combination.');
     }
   };
 

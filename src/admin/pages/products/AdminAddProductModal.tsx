@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { Product, CategoryType, ProductColor } from '../../../types';
-import { storeDb } from '../../../database/store';
+import { apiClient } from '../../../api/client';
 import {
   X,
   Plus,
@@ -22,6 +22,7 @@ interface AdminAddProductModalProps {
   isOpen: boolean;
   onClose: () => void;
   productToEdit?: Product | null;
+  onProductSaved?: () => void;
 }
 
 const ALL_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '28', '30', '32', '34', '36', '38', '2-3Y', '4-5Y', '6-7Y', '8-9Y'];
@@ -84,7 +85,8 @@ const compressAndReadImage = (file: File): Promise<string> => {
 export const AdminAddProductModal: React.FC<AdminAddProductModalProps> = ({
   isOpen,
   onClose,
-  productToEdit
+  productToEdit,
+  onProductSaved
 }) => {
   const [name, setName] = useState(productToEdit?.name || '');
   const [category, setCategory] = useState<CategoryType>(productToEdit?.category || 'Men');
@@ -229,7 +231,7 @@ export const AdminAddProductModal: React.FC<AdminAddProductModalProps> = ({
     setImages(images.filter((_, i) => i !== idx));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!name.trim()) {
@@ -261,13 +263,20 @@ export const AdminAddProductModal: React.FC<AdminAddProductModalProps> = ({
       isFeatured
     };
 
-    if (productToEdit) {
-      storeDb.updateProduct(productToEdit.id, productData);
-    } else {
-      storeDb.addProduct(productData);
-    }
+    try {
+      if (productToEdit) {
+        await apiClient.products.update(productToEdit.id, productData);
+      } else {
+        await apiClient.products.create(productData);
+      }
 
-    onClose();
+      if (onProductSaved) {
+        onProductSaved();
+      }
+      onClose();
+    } catch (err: any) {
+      setValidationError(err.message || 'Failed to save product');
+    }
   };
 
   return (

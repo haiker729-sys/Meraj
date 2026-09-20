@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Product } from '../../../types';
-import { storeDb } from '../../../database/store';
+import { cartManager } from '../../../utils/cartManager';
+import { apiClient } from '../../../api/client';
 import { ProductCard } from '../../components/product-card/ProductCard';
-import { Heart, ShoppingBag, ArrowRight } from 'lucide-react';
+import { Heart, ShoppingBag, ArrowRight, Loader2 } from 'lucide-react';
 
 interface WishlistPageProps {
   wishlistIds?: string[];
@@ -19,8 +20,30 @@ export const WishlistPage: React.FC<WishlistPageProps> = ({
   onProductClick,
   onNavigate
 }) => {
-  const currentWishlistIds = propWishlistIds || storeDb.getWishlist();
-  const allProducts = storeDb.getProducts();
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const currentWishlistIds = propWishlistIds || cartManager.getWishlist();
+
+  useEffect(() => {
+    let isCancelled = false;
+    apiClient.products.list({ limit: 100 })
+      .then((res) => {
+        if (!isCancelled && res?.products) {
+          setAllProducts(res.products);
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load products for wishlist:', err);
+      })
+      .finally(() => {
+        if (!isCancelled) setLoading(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, []);
+
   const wishlistedProducts = allProducts.filter((p) => currentWishlistIds.includes(p.id));
 
   const handleSelectProduct = (p: Product) => {
@@ -31,8 +54,16 @@ export const WishlistPage: React.FC<WishlistPageProps> = ({
 
   const handleToggleWishlist = (id: string) => {
     if (onToggleWishlist) onToggleWishlist(id);
-    else storeDb.toggleWishlist(id);
+    else cartManager.toggleWishlist(id);
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-neutral-50/50 flex items-center justify-center p-6">
+        <Loader2 className="w-8 h-8 animate-spin text-neutral-500" />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-neutral-50/50 py-10">

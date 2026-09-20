@@ -1,13 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Order } from '../../../types';
-import { storeDb } from '../../../database/store';
+import { apiClient } from '../../../api/client';
 import { PrintLabelModal } from '../../../shipping-label/print/PrintLabelModal';
 import { Truck, Printer, Search, Package, MapPin, CheckCircle2 } from 'lucide-react';
 
 export const AdminShippingPage: React.FC = () => {
-  const [orders, setOrders] = useState<Order[]>(storeDb.getOrders());
+  const [orders, setOrders] = useState<Order[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedOrderForLabel, setSelectedOrderForLabel] = useState<Order | null>(null);
+
+  useEffect(() => {
+    const fetchShippingOrders = async () => {
+      try {
+        const res = await apiClient.orders.list({ limit: 100 });
+        if (res?.orders) {
+          setOrders(res.orders);
+        }
+      } catch (err) {
+        console.error('Failed to load shipping orders:', err);
+      }
+    };
+    fetchShippingOrders();
+  }, []);
 
   const filteredOrders = orders.filter((o) => {
     if (searchQuery.trim()) {

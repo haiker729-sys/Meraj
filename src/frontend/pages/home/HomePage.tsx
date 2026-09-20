@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Product, Banner } from '../../../types';
-import { storeDb } from '../../../database/store';
+import { apiClient } from '../../../api/client';
 import { ProductCard } from '../../components/product-card/ProductCard';
 import { INITIAL_REVIEWS, INITIAL_BANNERS } from '../../../database/seed/productsData';
 import { ArrowRight, Sparkles, ChevronLeft, ChevronRight, Star, ShieldCheck, Flame, Tag } from 'lucide-react';
@@ -37,12 +37,19 @@ export const HomePage: React.FC<HomePageProps> = ({
 
   useEffect(() => {
     setBanners(INITIAL_BANNERS);
-    setProducts(storeDb.getProducts());
 
-    const unsub = storeDb.subscribe(() => {
-      setProducts(storeDb.getProducts());
-    });
-    return unsub;
+    const fetchHomeProducts = async () => {
+      try {
+        const res = await apiClient.products.list({ limit: 50 });
+        if (res?.products) {
+          setProducts(res.products);
+        }
+      } catch (err) {
+        console.error('Failed to load products for homepage:', err);
+      }
+    };
+
+    fetchHomeProducts();
   }, []);
 
   // Banner autoplay

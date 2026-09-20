@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { CartItem, CustomerDetails, ShippingAddress, Order } from '../../../types';
-import { storeDb } from '../../../database/store';
+import { cartManager } from '../../../utils/cartManager';
 import { apiClient } from '../../../api/client';
 import { paymentService } from '../../../backend/services/paymentService';
 import { notificationService } from '../../../backend/services/notificationService';
@@ -82,15 +82,19 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
     return Object.keys(errs).length === 0;
   };
 
-  const handleApplyCoupon = (e: React.FormEvent) => {
+  const handleApplyCoupon = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!couponCode.trim()) return;
-    const res = storeDb.applyCoupon(couponCode, subtotal);
-    if (res.valid) {
-      setAppliedCouponDiscount(res.discount);
-      setCouponMessage(`Applied ${couponCode.toUpperCase()}! Saved ₹${res.discount}`);
-    } else {
-      setCouponMessage(res.message);
+    try {
+      const res = await apiClient.coupons.validate(couponCode, subtotal);
+      if (res.valid) {
+        setAppliedCouponDiscount(res.discount);
+        setCouponMessage(res.message || `Applied ${couponCode.toUpperCase()}! Saved ₹${res.discount}`);
+      } else {
+        setCouponMessage(res.message || 'Invalid coupon code');
+      }
+    } catch (err: any) {
+      setCouponMessage(err.message || 'Could not validate coupon.');
     }
   };
 
@@ -109,36 +113,23 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
     setIsProcessing(true);
 
     try {
-      // 1. Transactional Order Creation via Backend
-      let newOrder: Order;
-      try {
-        const orderPayload = {
-          customer,
-          shippingAddress: address,
-          items: cartItems.map((ci) => ({
-            productId: ci.productId,
-            quantity: ci.quantity,
-            selectedSize: ci.selectedSize,
-            selectedColor: ci.selectedColor
-          })),
-          paymentMethod,
-          couponCode: appliedCouponDiscount > 0 ? couponCode.toUpperCase() : undefined
-        };
+      // 1. Transactional Order Creation via Backend in PostgreSQL (Strictly no local fallback)
+      const orderPayload = {
+        customer,
+        shippingAddress: address,
+        items: cartItems.map((ci) => ({
+          productId: ci.productId,
+          quantity: ci.quantity,
+          selectedSize: ci.selectedSize,
+          selectedColor: ci.selectedColor
+        })),
+        paymentMethod,
+        couponCode: appliedCouponDiscount > 0 ? couponCode.toUpperCase() : undefined
+      };
 
-        const res = await apiClient.orders.create(orderPayload);
-        newOrder = res.order;
-        storeDb.clearCart();
-      } catch (backendErr: any) {
-        console.warn('Using storeDb fallback for order:', backendErr.message);
-        newOrder = storeDb.createOrder({
-          customer,
-          shippingAddress: address,
-          items: cartItems,
-          paymentMethod,
-          couponCode: appliedCouponDiscount > 0 ? couponCode.toUpperCase() : undefined,
-          discount: appliedCouponDiscount
-        });
-      }
+      const res = await apiClient.orders.create(orderPayload);
+      const newOrder: Order = res.order;
+      cartManager.clearCart();
 
       // 2. Handle Payment Verification if ONLINE
       if (paymentMethod === 'ONLINE') {
@@ -159,7 +150,10 @@ export const CheckoutPage: React.FC<CheckoutPageProps> = ({
               setPaymentMethod('COD');
               newOrder.paymentMethod = 'COD';
               newOrder.paymentStatus = 'PENDING';
-              storeDb.updateOrderStatus(newOrder.id, 'NEW', undefined, undefined, 'Switched to Cash on Delivery (COD)');
+              await apiClient.orders.updateStatus(newOrder.id, {
+                status: 'NEW',
+                note: 'Switched to Cash on Delivery (COD)'
+              }).catch(() => {});
             } else {
               setIsProcessing(false);
               return;

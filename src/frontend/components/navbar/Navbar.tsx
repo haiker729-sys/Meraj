@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { ShoppingBag, Heart, Search, User, Menu, X, Sparkles, ChevronRight } from 'lucide-react';
 import { Product } from '../../../types';
-import { storeDb } from '../../../database/store';
+import { apiClient } from '../../../api/client';
 
 interface NavbarProps {
   currentPath: string;
@@ -25,20 +25,23 @@ export const Navbar: React.FC<NavbarProps> = ({
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    let isCancelled = false;
     if (searchQuery.trim().length > 1) {
-      const q = searchQuery.toLowerCase();
-      const all = storeDb.getProducts();
-      const filtered = all.filter(
-        (p: Product) =>
-          p.name.toLowerCase().includes(q) ||
-          p.category.toLowerCase().includes(q) ||
-          p.subCategory.toLowerCase().includes(q) ||
-          p.sku.toLowerCase().includes(q)
-      );
-      setSearchResults(filtered.slice(0, 5));
+      apiClient.products.list({ search: searchQuery.trim(), limit: 5 })
+        .then((res) => {
+          if (!isCancelled && res?.products) {
+            setSearchResults(res.products);
+          }
+        })
+        .catch(() => {
+          if (!isCancelled) setSearchResults([]);
+        });
     } else {
       setSearchResults([]);
     }
+    return () => {
+      isCancelled = true;
+    };
   }, [searchQuery]);
 
   const handleSearchSubmit = (e: React.FormEvent) => {

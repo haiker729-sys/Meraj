@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Shield, User, Lock, Phone, Mail, CheckCircle, AlertCircle } from 'lucide-react';
-import { storeDb } from '../../../database/store';
+import { apiClient } from '../../../api/client';
 import { AdminRole } from '../../../types';
 
 interface AdminAddModalProps {
@@ -25,7 +25,7 @@ export const AdminAddModal: React.FC<AdminAddModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
@@ -44,31 +44,32 @@ export const AdminAddModal: React.FC<AdminAddModalProps> = ({
       return;
     }
 
-    const res = storeDb.addAdmin({
-      fullName: fullName.trim(),
-      username: username.trim(),
-      password: password.trim(),
-      role,
-      phone: phone.trim() || undefined,
-      email: email.trim() || undefined,
-      isActive: true
-    });
+    try {
+      const res = await apiClient.admin.createAdmin({
+        fullName: fullName.trim(),
+        username: username.trim(),
+        password: password.trim(),
+        role,
+        phone: phone.trim() || undefined,
+        email: email.trim() || undefined
+      });
 
-    if (res.success) {
-      setIsSuccess(true);
-      setTimeout(() => {
-        setIsSuccess(false);
-        setFullName('');
-        setUsername('');
-        setPassword('');
-        setPhone('');
-        setEmail('');
-        setRole('STORE_MANAGER');
-        onAdminAdded();
-        onClose();
-      }, 600);
-    } else {
-      setErrorMsg(res.message);
+      if (res.success) {
+        setIsSuccess(true);
+        setTimeout(() => {
+          setIsSuccess(false);
+          setFullName('');
+          setUsername('');
+          setPassword('');
+          setPhone('');
+          setEmail('');
+          setRole('STORE_MANAGER');
+          onAdminAdded();
+          onClose();
+        }, 600);
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to create admin.');
     }
   };
 

@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Product } from '../../../types';
-import { storeDb } from '../../../database/store';
+import { apiClient } from '../../../api/client';
 import { Plus, Search, Edit2, Trash2, Tag, Layers, AlertCircle, Copy, AlertTriangle, CheckCircle2, X } from 'lucide-react';
 import { AdminAddProductModal } from './AdminAddProductModal';
 
 export const AdminProductsList: React.FC = () => {
-  const [products, setProducts] = useState<Product[]>(storeDb.getProducts());
+  const [products, setProducts] = useState<Product[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('ALL');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -13,11 +13,19 @@ export const AdminProductsList: React.FC = () => {
   const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
-  // Subscribe to database updates
+  const fetchProducts = async () => {
+    try {
+      const res = await apiClient.products.list({ limit: 100 });
+      if (res?.products) {
+        setProducts(res.products);
+      }
+    } catch (err) {
+      console.error('Failed to load products:', err);
+    }
+  };
+
   useEffect(() => {
-    return storeDb.subscribe(() => {
-      setProducts(storeDb.getProducts());
-    });
+    fetchProducts();
   }, []);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -28,31 +36,35 @@ export const AdminProductsList: React.FC = () => {
   };
 
   const handleRefresh = () => {
-    setProducts(storeDb.getProducts());
+    fetchProducts();
   };
 
-  const confirmDeleteProduct = () => {
+  const confirmDeleteProduct = async () => {
     if (!deletingProduct) return;
     const prodName = deletingProduct.name;
-    const success = storeDb.deleteProduct(deletingProduct.id);
-    if (success) {
-      handleRefresh();
+    try {
+      await apiClient.products.delete(deletingProduct.id);
+      fetchProducts();
       showToast(`"${prodName}" successfully removed from catalog!`, 'success');
-    } else {
+    } catch (err) {
       showToast(`Failed to delete product. Please try again.`, 'error');
     }
     setDeletingProduct(null);
   };
 
-  const handleDuplicate = (p: Product) => {
+  const handleDuplicate = async (p: Product) => {
     const copy: Omit<Product, 'id' | 'createdAt'> = {
       ...p,
       name: `${p.name} (Copy)`,
       sku: `${p.sku}-COPY-${Math.floor(100 + Math.random() * 900)}`
     };
-    storeDb.addProduct(copy);
-    handleRefresh();
-    showToast(`Duplicated "${p.name}" as a new product`, 'success');
+    try {
+      await apiClient.products.create(copy);
+      fetchProducts();
+      showToast(`Duplicated "${p.name}" as a new product`, 'success');
+    } catch (err) {
+      showToast(`Failed to duplicate product.`, 'error');
+    }
   };
 
   const filteredProducts = products.filter((p) => {

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Product, ProductColor } from '../../../types';
 import { Heart, Star, ShoppingBag, Eye } from 'lucide-react';
-import { storeDb } from '../../../database/store';
+import { cartManager } from '../../../utils/cartManager';
 
 interface ProductCardProps {
   product: Product;
@@ -27,7 +27,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
     if (onToggleWishlist) {
       onToggleWishlist(product.id);
     } else {
-      storeDb.toggleWishlist(product.id);
+      cartManager.toggleWishlist(product.id);
     }
   };
 
@@ -37,7 +37,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       onQuickAddToCart(product);
     } else {
       // Default to first size and color
-      storeDb.addToCart({
+      cartManager.addToCart({
         productId: product.id,
         product,
         selectedSize: product.sizes[0] || 'M',

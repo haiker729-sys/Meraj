@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Product, CategoryType } from '../../../types';
-import { storeDb } from '../../../database/store';
+import { apiClient } from '../../../api/client';
 import { ProductCard } from '../../components/product-card/ProductCard';
 import { Search, Filter, X, SlidersHorizontal, ChevronDown } from 'lucide-react';
 
@@ -22,10 +22,10 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
   onNavigate,
   onSelectProduct,
   onProductClick,
-  wishlist: propWishlist,
+  wishlist: propWishlist = [],
   onToggleWishlist
 }) => {
-  const currentWishlist = propWishlist || storeDb.getWishlist();
+  const currentWishlist = propWishlist;
 
   const handleSelectProduct = (p: Product) => {
     if (onProductClick) {
@@ -48,11 +48,17 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState<boolean>(false);
 
   useEffect(() => {
-    setProducts(storeDb.getProducts());
-    const unsub = storeDb.subscribe(() => {
-      setProducts(storeDb.getProducts());
-    });
-    return unsub;
+    const fetchCatalog = async () => {
+      try {
+        const res = await apiClient.products.list({ limit: 200 });
+        if (res?.products) {
+          setProducts(res.products);
+        }
+      } catch (err) {
+        console.error('Failed to load products in catalog:', err);
+      }
+    };
+    fetchCatalog();
   }, []);
 
   useEffect(() => {
@@ -440,7 +446,6 @@ export const ProductsPage: React.FC<ProductsPageProps> = ({
                     isWishlisted={currentWishlist.includes(product.id)}
                     onToggleWishlist={(id) => {
                       if (onToggleWishlist) onToggleWishlist(id);
-                      else storeDb.toggleWishlist(id);
                     }}
                   />
                 ))}

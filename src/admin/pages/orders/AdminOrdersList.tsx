@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Order, OrderStatus } from '../../../types';
-import { storeDb } from '../../../database/store';
+import { apiClient } from '../../../api/client';
 import { Search, Printer, FileText, Eye, Filter, Ban, CheckCircle2, AlertCircle, X } from 'lucide-react';
 import { AdminOrderDetailsModal } from './AdminOrderDetailsModal';
 import { PrintLabelModal } from '../../../shipping-label/print/PrintLabelModal';
 import { PrintInvoiceModal } from '../../../invoice/print/PrintInvoiceModal';
 
 export const AdminOrdersList: React.FC = () => {
-  const [orders, setOrders] = useState<Order[]>(storeDb.getOrders());
+  const [orders, setOrders] = useState<Order[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -17,11 +17,19 @@ export const AdminOrdersList: React.FC = () => {
   const [cancelReason, setCancelReason] = useState('Customer requested cancellation');
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
-  // Subscribe to live database updates
+  const fetchOrders = async () => {
+    try {
+      const res = await apiClient.orders.list({ limit: 100 });
+      if (res?.orders) {
+        setOrders(res.orders);
+      }
+    } catch (err) {
+      console.error('Failed to load orders:', err);
+    }
+  };
+
   useEffect(() => {
-    return storeDb.subscribe(() => {
-      setOrders(storeDb.getOrders());
-    });
+    fetchOrders();
   }, []);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -32,7 +40,7 @@ export const AdminOrdersList: React.FC = () => {
   };
 
   const handleRefresh = () => {
-    setOrders(storeDb.getOrders());
+    fetchOrders();
   };
 
   const isCancelledOrder = (o: Order) => {
@@ -86,14 +94,17 @@ export const AdminOrdersList: React.FC = () => {
     return true;
   });
 
-  const confirmCancelOrder = () => {
+  const confirmCancelOrder = async () => {
     if (!cancellingOrder) return;
     const orderId = cancellingOrder.id;
-    const cancelled = storeDb.cancelOrder(orderId, cancelReason);
-    if (cancelled) {
-      handleRefresh();
+    try {
+      await apiClient.orders.updateStatus(orderId, {
+        status: 'CANCELLED',
+        note: cancelReason
+      });
+      fetchOrders();
       showToast(`Order #${orderId} has been successfully cancelled!`, 'success');
-    } else {
+    } catch (err) {
       showToast(`Failed to cancel order #${orderId}`, 'error');
     }
     setCancellingOrder(null);

@@ -1,10 +1,25 @@
-import React, { useState } from 'react';
-import { storeDb } from '../../../database/store';
+import React, { useState, useEffect } from 'react';
+import { Order } from '../../../types';
+import { apiClient } from '../../../api/client';
 import { Search, User, Phone, MapPin, Package } from 'lucide-react';
 
 export const AdminCustomersPage: React.FC = () => {
-  const orders = storeDb.getOrders();
+  const [orders, setOrders] = useState<Order[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    const fetchCustomerOrders = async () => {
+      try {
+        const res = await apiClient.orders.list({ limit: 200 });
+        if (res?.orders) {
+          setOrders(res.orders);
+        }
+      } catch (err) {
+        console.error('Failed to load customer orders:', err);
+      }
+    };
+    fetchCustomerOrders();
+  }, []);
 
   // Group by customer mobile
   const customerMap = new Map<string, {

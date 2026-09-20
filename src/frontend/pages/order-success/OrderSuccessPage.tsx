@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Order } from '../../../types';
-import { storeDb } from '../../../database/store';
-import { CheckCircle2, ArrowRight, Printer, Package, MapPin, Truck, Calendar } from 'lucide-react';
+import { apiClient } from '../../../api/client';
+import { CheckCircle2, ArrowRight, Printer, Package, MapPin, Truck, Calendar, Loader2 } from 'lucide-react';
 import { PrintInvoiceModal } from '../../../invoice/print/PrintInvoiceModal';
 
 interface OrderSuccessPageProps {
@@ -12,16 +12,53 @@ interface OrderSuccessPageProps {
 
 export const OrderSuccessPage: React.FC<OrderSuccessPageProps> = ({ order: propOrder, orderId, onNavigate }) => {
   const [isInvoiceOpen, setIsInvoiceOpen] = useState(false);
+  const [order, setOrder] = useState<Order | null>(propOrder || null);
+  const [loading, setLoading] = useState<boolean>(!propOrder && !!orderId);
 
-  const order = propOrder || (orderId ? storeDb.getOrderById(orderId) : null) || storeDb.getOrders()[0] || null;
+  useEffect(() => {
+    if (propOrder) {
+      setOrder(propOrder);
+      return;
+    }
+    if (orderId) {
+      setLoading(true);
+      apiClient.orders.getById(orderId)
+        .then((res) => {
+          if (res?.order) setOrder(res.order);
+        })
+        .catch(() => {
+          // If getById requires admin auth, try track endpoint
+          return apiClient.orders.track(orderId).then((res) => {
+            if (res?.order) setOrder(res.order);
+          });
+        })
+        .catch((err) => {
+          console.error('Failed to load order:', err);
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    }
+  }, [propOrder, orderId]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-neutral-50 flex items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-2xl border border-neutral-200 text-center max-w-md">
+          <Loader2 className="w-8 h-8 animate-spin mx-auto text-neutral-500 mb-3" />
+          <p className="text-sm font-semibold text-neutral-700">Fetching confirmed order details...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!order) {
     return (
       <div className="min-h-screen bg-neutral-50 flex items-center justify-center p-4">
         <div className="bg-white p-8 rounded-2xl border border-neutral-200 text-center max-w-md">
-          <h2 className="text-lg font-bold text-neutral-900">No recent order found</h2>
+          <h2 className="text-lg font-bold text-neutral-900">No confirmed order found</h2>
           <p className="text-xs text-neutral-500 mt-1 mb-6">
-            Please browse our collections or check your past order status.
+            Please browse our collections or check your past order status with your order ID.
           </p>
           <button
             onClick={() => onNavigate('/home')}

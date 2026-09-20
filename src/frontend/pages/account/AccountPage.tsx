@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { storeDb } from '../../../database/store';
+import React, { useState, useEffect } from 'react';
+import { apiClient } from '../../../api/client';
 import { PrintInvoiceModal } from '../../../invoice/print/PrintInvoiceModal';
 import { Order } from '../../../types';
-import { User, Package, MapPin, Heart, Phone, Mail, Printer, ExternalLink } from 'lucide-react';
+import { User, Package, MapPin, Heart, Phone, Mail, Printer, ExternalLink, Loader2 } from 'lucide-react';
 
 interface AccountPageProps {
   onNavigate: (path: string) => void;
@@ -11,8 +11,26 @@ interface AccountPageProps {
 export const AccountPage: React.FC<AccountPageProps> = ({ onNavigate }) => {
   const [activeTab, setActiveTab] = useState<'ORDERS' | 'PROFILE' | 'ADDRESSES'>('ORDERS');
   const [selectedInvoiceOrder, setSelectedInvoiceOrder] = useState<Order | null>(null);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const orders = storeDb.getOrders();
+  useEffect(() => {
+    const fetchUserOrders = async () => {
+      try {
+        setIsLoading(true);
+        // Try myOrders first if customer is logged in, else list
+        const res = await apiClient.orders.myOrders().catch(() => apiClient.orders.list({ limit: 50 }));
+        if (res?.orders) {
+          setOrders(res.orders);
+        }
+      } catch (err) {
+        console.error('Failed to load customer orders:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchUserOrders();
+  }, []);
 
   return (
     <div className="min-h-screen bg-neutral-50/60 py-10">
@@ -56,7 +74,12 @@ export const AccountPage: React.FC<AccountPageProps> = ({ onNavigate }) => {
 
         {activeTab === 'ORDERS' && (
           <div className="space-y-6">
-            {orders.length === 0 ? (
+            {isLoading ? (
+              <div className="bg-white rounded-3xl border border-neutral-200 p-12 text-center max-w-md mx-auto">
+                <Loader2 className="w-8 h-8 animate-spin mx-auto text-neutral-400 mb-3" />
+                <p className="text-sm text-neutral-600 font-medium">Loading orders from server...</p>
+              </div>
+            ) : orders.length === 0 ? (
               <div className="bg-white rounded-3xl border border-neutral-200 p-12 text-center max-w-md mx-auto">
                 <Package className="w-12 h-12 text-neutral-400 mx-auto mb-3" />
                 <h3 className="font-bold text-sm text-neutral-900">No orders placed yet</h3>

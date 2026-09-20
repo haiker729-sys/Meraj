@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { CartItem } from '../../../types';
-import { storeDb } from '../../../database/store';
+import { cartManager } from '../../../utils/cartManager';
+import { apiClient } from '../../../api/client';
 import { X, Plus, Minus, Trash2, ShoppingBag, ArrowRight, Tag, Check, Truck } from 'lucide-react';
 
 interface CartDrawerProps {
@@ -33,16 +34,20 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const discountAmount = appliedCoupon ? appliedCoupon.discount : 0;
   const grandTotal = Math.max(0, subtotal + deliveryCharge - discountAmount);
 
-  const handleApplyCoupon = (e: React.FormEvent) => {
+  const handleApplyCoupon = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!couponCode.trim()) return;
 
-    const result = storeDb.applyCoupon(couponCode, subtotal);
-    if (result.valid) {
-      setAppliedCoupon({ code: couponCode.trim().toUpperCase(), discount: result.discount });
-      setCouponMessage({ text: result.message, isError: false });
-    } else {
-      setCouponMessage({ text: result.message, isError: true });
+    try {
+      const result = await apiClient.coupons.validate(couponCode.trim(), subtotal);
+      if (result.valid) {
+        setAppliedCoupon({ code: couponCode.trim().toUpperCase(), discount: result.discount });
+        setCouponMessage({ text: result.message, isError: false });
+      } else {
+        setCouponMessage({ text: result.message, isError: true });
+      }
+    } catch (err: any) {
+      setCouponMessage({ text: err.message || 'Invalid coupon.', isError: true });
     }
   };
 
@@ -149,7 +154,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                         </h4>
                         <button
                           type="button"
-                          onClick={() => storeDb.removeFromCart(index)}
+                          onClick={() => cartManager.removeFromCart(index)}
                           className="text-neutral-400 hover:text-rose-600 transition-colors p-1"
                           title="Remove item"
                         >
@@ -177,7 +182,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                       <div className="flex items-center border border-neutral-300 rounded-md">
                         <button
                           type="button"
-                          onClick={() => storeDb.updateCartQuantity(index, item.quantity - 1)}
+                          onClick={() => cartManager.updateQuantity(index, item.quantity - 1)}
                           className="p-1 hover:bg-neutral-100 text-neutral-600 transition-colors"
                         >
                           <Minus className="w-3 h-3" />
@@ -187,7 +192,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                         </span>
                         <button
                           type="button"
-                          onClick={() => storeDb.updateCartQuantity(index, item.quantity + 1)}
+                          onClick={() => cartManager.updateQuantity(index, item.quantity + 1)}
                           className="p-1 hover:bg-neutral-100 text-neutral-600 transition-colors"
                         >
                           <Plus className="w-3 h-3" />

@@ -13,7 +13,7 @@ import { AdminManagementPage } from './pages/admins/AdminManagementPage';
 import { AdminAddProductModal } from './pages/products/AdminAddProductModal';
 import { AdminOrderDetailsModal } from './pages/orders/AdminOrderDetailsModal';
 import { Order, AdminUser } from '../types';
-import { storeDb } from '../database/store';
+import { apiClient } from '../api/client';
 
 interface AdminLayoutProps {
   onExitAdmin: () => void;
@@ -25,14 +25,28 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ onExitAdmin, onLogout,
   const [activeTab, setActiveTab] = useState<AdminTab>('DASHBOARD');
   const [isAddProductModalOpen, setIsAddProductModalOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [stats, setStats] = useState(storeDb.getStats());
+  const [stats, setStats] = useState({
+    pendingOrders: 0,
+    lowStockCount: 0
+  });
+
+  const refreshStats = async () => {
+    try {
+      const res = await apiClient.admin.getStats();
+      if (res?.stats) {
+        setStats({
+          pendingOrders: res.stats.pendingOrders || 0,
+          lowStockCount: res.stats.lowStockCount || 0
+        });
+      }
+    } catch (err) {
+      console.error('Failed to load admin stats:', err);
+    }
+  };
 
   useEffect(() => {
-    const unsub = storeDb.subscribe(() => {
-      setStats(storeDb.getStats());
-    });
-    return unsub;
-  }, []);
+    refreshStats();
+  }, [activeTab]);
 
   const getTabHeader = () => {
     switch (activeTab) {
@@ -139,7 +153,7 @@ export const AdminLayout: React.FC<AdminLayoutProps> = ({ onExitAdmin, onLogout,
         order={selectedOrder}
         isOpen={!!selectedOrder}
         onClose={() => setSelectedOrder(null)}
-        onOrderUpdated={() => setStats(storeDb.getStats())}
+        onOrderUpdated={refreshStats}
       />
     </div>
   );

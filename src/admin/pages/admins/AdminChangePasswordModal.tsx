@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Lock, KeyRound, CheckCircle, AlertCircle } from 'lucide-react';
-import { storeDb } from '../../../database/store';
+import { apiClient } from '../../../api/client';
 import { AdminUser } from '../../../types';
 
 interface AdminChangePasswordModalProps {
@@ -23,7 +23,7 @@ export const AdminChangePasswordModal: React.FC<AdminChangePasswordModalProps> =
 
   if (!isOpen || !admin) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
@@ -37,21 +37,25 @@ export const AdminChangePasswordModal: React.FC<AdminChangePasswordModalProps> =
       return;
     }
 
-    const res = storeDb.updateAdmin(admin.id, {
-      password: newPassword.trim()
-    });
+    try {
+      const res = await apiClient.admin.updateAdmin(admin.id, {
+        password: newPassword.trim()
+      });
 
-    if (res.success) {
-      setIsSuccess(true);
-      setTimeout(() => {
-        setIsSuccess(false);
-        setNewPassword('');
-        setConfirmPassword('');
-        onUpdated();
-        onClose();
-      }, 600);
-    } else {
-      setErrorMsg(res.message);
+      if (res.success) {
+        setIsSuccess(true);
+        setTimeout(() => {
+          setIsSuccess(false);
+          setNewPassword('');
+          setConfirmPassword('');
+          onUpdated();
+          onClose();
+        }, 600);
+      } else {
+        setErrorMsg(res.message || 'Failed to update password.');
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to update password.');
     }
   };
 

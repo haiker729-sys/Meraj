@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Product, ProductColor } from '../../../types';
-import { storeDb } from '../../../database/store';
+import { apiClient } from '../../../api/client';
+import { cartManager } from '../../../utils/cartManager';
 import { SizeChartModal } from '../../components/modal/SizeChartModal';
 import {
   Star,
@@ -13,7 +14,8 @@ import {
   Ruler,
   Check,
   ChevronRight,
-  MapPin
+  MapPin,
+  Loader2
 } from 'lucide-react';
 
 interface ProductDetailsPageProps {
@@ -35,24 +37,67 @@ export const ProductDetailsPage: React.FC<ProductDetailsPageProps> = ({
   onToggleWishlist,
   onOpenCart
 }) => {
-  const resolvedProduct =
-    initialProduct ||
-    (productId ? storeDb.getProductById(productId) : undefined) ||
-    storeDb.getProducts()[0];
+  const [product, setProduct] = useState<Product | null>(initialProduct || null);
+  const [loading, setLoading] = useState<boolean>(!initialProduct && !!productId);
+  const [relatedProducts, setRelatedProducts] = useState<Product[]>([]);
 
-  const product = resolvedProduct;
-  const isWishlisted = propIsWishlisted ?? (product ? storeDb.isInWishlist(product.id) : false);
+  useEffect(() => {
+    if (initialProduct) {
+      setProduct(initialProduct);
+      return;
+    }
+    if (productId) {
+      setLoading(true);
+      apiClient.products.getById(productId)
+        .then((res) => {
+          if (res?.product) {
+            setProduct(res.product);
+          }
+        })
+        .catch((err) => {
+          console.error('Failed to load product details:', err);
+        })
+        .finally(() => setLoading(false));
+    }
+  }, [initialProduct, productId]);
+
+  useEffect(() => {
+    if (product?.category) {
+      apiClient.products.list({ category: product.category, limit: 5 })
+        .then((res) => {
+          if (res?.products) {
+            setRelatedProducts(res.products.filter((p) => p.id !== product.id).slice(0, 4));
+          }
+        })
+        .catch(() => {});
+    }
+  }, [product?.id, product?.category]);
+
+  const isWishlisted = propIsWishlisted ?? (product ? cartManager.isInWishlist(product.id) : false);
 
   const [selectedImageIdx, setSelectedImageIdx] = useState(0);
-  const [selectedSize, setSelectedSize] = useState<string>(product?.sizes?.[0] || 'M');
-  const [selectedColor, setSelectedColor] = useState<ProductColor>(
-    product?.colors?.[0] || { name: 'Standard', hex: '#000000' }
-  );
+  const [selectedSize, setSelectedSize] = useState<string>('M');
+  const [selectedColor, setSelectedColor] = useState<ProductColor>({ name: 'Standard', hex: '#000000' });
   const [quantity, setQuantity] = useState(1);
   const [isSizeChartOpen, setIsSizeChartOpen] = useState(false);
   const [pinCode, setPinCode] = useState('');
   const [deliveryEstimate, setDeliveryEstimate] = useState<string | null>(null);
   const [addedSuccess, setAddedSuccess] = useState(false);
+
+  useEffect(() => {
+    if (product) {
+      if (product.sizes?.[0]) setSelectedSize(product.sizes[0]);
+      if (product.colors?.[0]) setSelectedColor(product.colors[0]);
+    }
+  }, [product]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6 text-center">
+        <Loader2 className="w-8 h-8 animate-spin text-neutral-500" />
+      </div>
+    );
+  }
 
   if (!product) {
     return (
@@ -92,7 +137,7 @@ export const ProductDetailsPage: React.FC<ProductDetailsPageProps> = ({
   };
 
   const handleAddToCart = () => {
-    storeDb.addToCart({
+    cartManager.addToCart({
       productId: product.id,
       product,
       selectedSize,
@@ -104,7 +149,7 @@ export const ProductDetailsPage: React.FC<ProductDetailsPageProps> = ({
   };
 
   const handleBuyNow = () => {
-    storeDb.addToCart({
+    cartManager.addToCart({
       productId: product.id,
       product,
       selectedSize,
@@ -113,11 +158,6 @@ export const ProductDetailsPage: React.FC<ProductDetailsPageProps> = ({
     });
     onNavigate('/checkout');
   };
-
-  const relatedProducts = storeDb
-    .getProducts()
-    .filter((p) => p.category === product.category && p.id !== product.id)
-    .slice(0, 4);
 
   return (
     <div className="min-h-screen bg-white py-8">
@@ -187,7 +227,7 @@ export const ProductDetailsPage: React.FC<ProductDetailsPageProps> = ({
                 type="button"
                 onClick={() => {
                   if (onToggleWishlist) onToggleWishlist(product.id);
-                  else storeDb.toggleWishlist(product.id);
+                  else cartManager.toggleWishlist(product.id);
                 }}
                 className={`absolute top-4 right-4 w-10 h-10 rounded-full flex items-center justify-center backdrop-blur-md transition-transform active:scale-90 ${
                   isWishlisted
