@@ -151,11 +151,35 @@ export const orderTrackingEvents = pgTable('order_tracking_events', {
   orderId: text('order_id').references(() => orders.id, { onDelete: 'cascade' }),
   trackingNumber: text('tracking_number').notNull(),
   status: text('status').notNull(),
+  locationName: text('location_name'),
   location: text('location'),
+  city: text('city'),
+  district: text('district'),
+  state: text('state'),
+  pincode: text('pincode'),
+  latitude: doublePrecision('latitude'),
+  longitude: doublePrecision('longitude'),
   description: text('description').notNull(),
   source: text('source').notNull().default('SYSTEM'),
   scannedBy: text('scanned_by'),
+  scannedAt: timestamp('scanned_at').defaultNow(),
   createdAt: timestamp('created_at').defaultNow(),
+});
+
+export const parcelScanEvents = pgTable('parcel_scan_events', {
+  id: text('id').primaryKey(),
+  orderId: text('order_id').references(() => orders.id, { onDelete: 'cascade' }),
+  trackingNumber: text('tracking_number').notNull(),
+  scanType: text('scan_type').notNull(),
+  locationName: text('location_name').notNull(),
+  city: text('city'),
+  district: text('district'),
+  state: text('state'),
+  pincode: text('pincode'),
+  latitude: doublePrecision('latitude'),
+  longitude: doublePrecision('longitude'),
+  scannedBy: text('scanned_by').notNull(),
+  scannedAt: timestamp('scanned_at').defaultNow(),
 });
 
 export const qrScanEvents = pgTable('qr_scan_events', {
