@@ -10,7 +10,7 @@ import express from "express";
 // server/routes/auth.ts
 import { Router } from "express";
 import bcrypt3 from "bcryptjs";
-import crypto3 from "crypto";
+import crypto4 from "crypto";
 
 // server/db.ts
 import bcrypt2 from "bcryptjs";
@@ -1469,8 +1469,7 @@ var InMemoryDatabaseManager = class {
         p.updatedAt = (/* @__PURE__ */ new Date()).toISOString();
       }
     }
-    const randomSuffix = Math.floor(1e3 + Math.random() * 9e3);
-    const orderId = `FP-2026-${Date.now().toString().slice(-4)}${randomSuffix.toString().slice(-2)}`;
+    const orderId = `FP-2026-${crypto.randomBytes(5).toString("hex").toUpperCase()}`;
     const invoiceNumber = `INV-FP-2026-${Date.now().toString().slice(-6)}`;
     const trackingNumber = `DEL-${Date.now().toString().slice(-7)}`;
     const trackingToken = `tk_${crypto.randomBytes(12).toString("hex")}`;
@@ -2652,8 +2651,7 @@ var PostgresDatabaseManager = class {
           [item.quantity, item.productId]
         );
       }
-      const randomSuffix = Math.floor(1e3 + Math.random() * 9e3);
-      const orderId = `FP-2026-${Date.now().toString().slice(-4)}${randomSuffix.toString().slice(-2)}`;
+      const orderId = `FP-2026-${crypto2.randomBytes(5).toString("hex").toUpperCase()}`;
       const invoiceNumber = `INV-FP-2026-${Date.now().toString().slice(-6)}`;
       const trackingNumber = `DEL-${Date.now().toString().slice(-7)}`;
       const trackingToken = `tk_${crypto2.randomBytes(12).toString("hex")}`;
@@ -3500,7 +3498,17 @@ var db = new Proxy(rawDb, {
 
 // server/middleware/auth.ts
 import jwt from "jsonwebtoken";
-var JWT_SECRET = process.env.JWT_SECRET || "fashion-point-jwt-secret-stable-token-session-key-2026";
+import crypto3 from "crypto";
+function getJwtSecret() {
+  if (process.env.JWT_SECRET) {
+    return process.env.JWT_SECRET;
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("FATAL: JWT_SECRET environment variable is required in production mode.");
+  }
+  return crypto3.randomBytes(32).toString("hex");
+}
+var JWT_SECRET = getJwtSecret();
 function generateToken(payload, expiresIn = "7d") {
   return jwt.sign(payload, JWT_SECRET, { expiresIn });
 }
@@ -3745,7 +3753,7 @@ router.post("/request-otp", async (req, res) => {
       });
       return;
     }
-    const rawOtp = crypto3.randomInt(1e5, 999999).toString();
+    const rawOtp = crypto4.randomInt(1e5, 999999).toString();
     const codeHash = bcrypt3.hashSync(rawOtp, 8);
     const isDev = process.env.NODE_ENV !== "production";
     const isSmsConfigured = Boolean(process.env.SMS_API_KEY || process.env.SMS_PROVIDER_KEY);
@@ -3872,7 +3880,7 @@ router.post("/forgot-password/request-otp", async (req, res) => {
       });
       return;
     }
-    const rawOtp = crypto3.randomInt(1e5, 999999).toString();
+    const rawOtp = crypto4.randomInt(1e5, 999999).toString();
     const codeHash = bcrypt3.hashSync(rawOtp, 8);
     const isDev = process.env.NODE_ENV !== "production";
     const isSmsConfigured = Boolean(process.env.SMS_API_KEY || process.env.SMS_PROVIDER_KEY);
@@ -4006,10 +4014,7 @@ router2.post("/login", async (req, res) => {
       });
       return;
     }
-    let isValid = bcrypt4.compareSync(password, admin.passwordHash);
-    if (!isValid && (password === "Meraj@&099" || admin.username === "admin" && password === "admin123")) {
-      isValid = true;
-    }
+    const isValid = bcrypt4.compareSync(password, admin.passwordHash);
     if (!isValid) {
       res.status(401).json({
         success: false,
@@ -4381,11 +4386,17 @@ router4.get("/track/:query", async (req, res) => {
     res.status(500).json({ success: false, error: err.message || "Server error." });
   }
 });
-router4.get("/:id/tracking", async (req, res) => {
+router4.get("/:id/tracking", authenticateToken, async (req, res) => {
   try {
     const order = await db.getOrderById(req.params.id);
     if (!order) {
       res.status(404).json({ success: false, error: "Order not found." });
+      return;
+    }
+    const isOwner = req.user?.id && String(req.user.id) === String(order.userId);
+    const isStaffOrAdmin = req.user?.role && ALLOWED_STAFF_ROLES.includes(req.user.role);
+    if (!isOwner && !isStaffOrAdmin) {
+      res.status(403).json({ success: false, error: "Access denied: You do not have permission to view this order." });
       return;
     }
     const trackingEvents = await db.getOrderTrackingEvents(order.id);
@@ -4419,11 +4430,17 @@ router4.get("/", requireAdmin, async (req, res) => {
     res.status(500).json({ success: false, error: err.message || "Server error." });
   }
 });
-router4.get("/:id", async (req, res) => {
+router4.get("/:id", authenticateToken, async (req, res) => {
   try {
     const order = await db.getOrderById(req.params.id);
     if (!order) {
       res.status(404).json({ success: false, error: "Order not found." });
+      return;
+    }
+    const isOwner = req.user?.id && String(req.user.id) === String(order.userId);
+    const isStaffOrAdmin = req.user?.role && ALLOWED_STAFF_ROLES.includes(req.user.role);
+    if (!isOwner && !isStaffOrAdmin) {
+      res.status(403).json({ success: false, error: "Access denied: You do not have permission to view this order." });
       return;
     }
     res.json({ success: true, order });
@@ -4455,7 +4472,7 @@ var orders_default = router4;
 import { Router as Router5 } from "express";
 
 // server/services/paymentService.ts
-import crypto4 from "crypto";
+import crypto5 from "crypto";
 var BackendPaymentService = class {
   constructor() {
     this.keyId = process.env.RAZORPAY_KEY_ID || "";
@@ -4525,21 +4542,28 @@ var BackendPaymentService = class {
    * hmac = HMAC_SHA256(order_id + "|" + payment_id, secret)
    */
   verifySignature(params) {
-    if (!this.isConfigured()) return false;
+    if (!this.isConfigured() || !params?.razorpaySignature) return false;
     const payload = `${params.razorpayOrderId}|${params.razorpayPaymentId}`;
-    const expectedSignature = crypto4.createHmac("sha256", this.keySecret).update(payload).digest("hex");
-    return crypto4.timingSafeEqual(
-      Buffer.from(expectedSignature, "hex"),
-      Buffer.from(params.razorpaySignature, "hex")
-    );
+    const expectedSignature = crypto5.createHmac("sha256", this.keySecret).update(payload).digest("hex");
+    const expectedBuf = Buffer.from(expectedSignature, "hex");
+    const actualBuf = Buffer.from(params.razorpaySignature, "hex");
+    if (expectedBuf.length !== actualBuf.length) {
+      return false;
+    }
+    return crypto5.timingSafeEqual(expectedBuf, actualBuf);
   }
   /**
    * Verifies Razorpay Webhook signature
    */
   verifyWebhookSignature(rawBody, signature) {
-    if (!this.webhookSecret) return false;
-    const expected = crypto4.createHmac("sha256", this.webhookSecret).update(rawBody).digest("hex");
-    return expected === signature;
+    if (!this.webhookSecret || !signature) return false;
+    const expected = crypto5.createHmac("sha256", this.webhookSecret).update(rawBody).digest("hex");
+    const expectedBuf = Buffer.from(expected);
+    const actualBuf = Buffer.from(signature);
+    if (expectedBuf.length !== actualBuf.length) {
+      return false;
+    }
+    return crypto5.timingSafeEqual(expectedBuf, actualBuf);
   }
 };
 var paymentService = new BackendPaymentService();
@@ -4642,12 +4666,14 @@ router5.post("/webhook", async (req, res) => {
   try {
     const signature = req.headers["x-razorpay-signature"];
     const rawPayload = JSON.stringify(req.body);
-    if (process.env.RAZORPAY_WEBHOOK_SECRET) {
-      const isValid = paymentService.verifyWebhookSignature(rawPayload, signature || "");
-      if (!isValid) {
-        res.status(400).json({ success: false, error: "Invalid webhook signature." });
-        return;
-      }
+    if (!process.env.RAZORPAY_WEBHOOK_SECRET) {
+      res.status(503).json({ success: false, error: "Webhook processing is unavailable: webhook secret is not configured." });
+      return;
+    }
+    const isValid = paymentService.verifyWebhookSignature(rawPayload, signature || "");
+    if (!isValid) {
+      res.status(400).json({ success: false, error: "Invalid webhook signature." });
+      return;
     }
     const event = req.body.event;
     const payload = req.body.payload;
@@ -5044,7 +5070,7 @@ router7.put("/settings", async (req, res) => {
     res.status(500).json({ success: false, error: err.message || "Server error." });
   }
 });
-router7.get("/users", async (_req, res) => {
+router7.get("/users", requireSuperAdmin, async (_req, res) => {
   try {
     const admins2 = await db.getAdmins();
     res.json({ success: true, admins: admins2 });
@@ -5052,7 +5078,7 @@ router7.get("/users", async (_req, res) => {
     res.status(500).json({ success: false, error: err.message || "Server error." });
   }
 });
-router7.post("/users", async (req, res) => {
+router7.post("/users", requireSuperAdmin, async (req, res) => {
   try {
     const { username, password, fullName, role, phone, email } = req.body;
     if (!username || !password || !fullName) {
@@ -5064,7 +5090,7 @@ router7.post("/users", async (req, res) => {
     res.status(400).json({ success: false, error: err.message || "Failed to create admin." });
   }
 });
-router7.put("/users/:id", async (req, res) => {
+router7.put("/users/:id", requireSuperAdmin, async (req, res) => {
   try {
     const { id } = req.params;
     const { isActive, role, fullName, phone, email, password } = req.body;
@@ -5074,11 +5100,11 @@ router7.put("/users/:id", async (req, res) => {
     res.status(500).json({ success: false, error: err.message || "Failed to update admin." });
   }
 });
-router7.delete("/users/:id", async (req, res) => {
+router7.delete("/users/:id", requireSuperAdmin, async (req, res) => {
   try {
     const { id } = req.params;
-    const currentAdmin = req.admin;
-    if (currentAdmin && currentAdmin.id === id) {
+    const currentUser = req.user;
+    if (currentUser && currentUser.id === id) {
       return res.status(400).json({ success: false, error: "You cannot delete your own admin account." });
     }
     const success = await db.deleteAdmin(id);
@@ -5755,6 +5781,7 @@ var postal_default = router9;
 
 // server/app.ts
 var app = express();
+app.disable("x-powered-by");
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use((_req, res, next) => {

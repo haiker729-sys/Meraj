@@ -101,7 +101,7 @@ class BackendPaymentService {
    * hmac = HMAC_SHA256(order_id + "|" + payment_id, secret)
    */
   public verifySignature(params: PaymentVerificationParams): boolean {
-    if (!this.isConfigured()) return false;
+    if (!this.isConfigured() || !params?.razorpaySignature) return false;
 
     const payload = `${params.razorpayOrderId}|${params.razorpayPaymentId}`;
     const expectedSignature = crypto
@@ -109,22 +109,34 @@ class BackendPaymentService {
       .update(payload)
       .digest('hex');
 
-    return crypto.timingSafeEqual(
-      Buffer.from(expectedSignature, 'hex'),
-      Buffer.from(params.razorpaySignature, 'hex')
-    );
+    const expectedBuf = Buffer.from(expectedSignature, 'hex');
+    const actualBuf = Buffer.from(params.razorpaySignature, 'hex');
+
+    if (expectedBuf.length !== actualBuf.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(expectedBuf, actualBuf);
   }
 
   /**
    * Verifies Razorpay Webhook signature
    */
   public verifyWebhookSignature(rawBody: string, signature: string): boolean {
-    if (!this.webhookSecret) return false;
+    if (!this.webhookSecret || !signature) return false;
     const expected = crypto
       .createHmac('sha256', this.webhookSecret)
       .update(rawBody)
       .digest('hex');
-    return expected === signature;
+
+    const expectedBuf = Buffer.from(expected);
+    const actualBuf = Buffer.from(signature);
+
+    if (expectedBuf.length !== actualBuf.length) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(expectedBuf, actualBuf);
   }
 }
 

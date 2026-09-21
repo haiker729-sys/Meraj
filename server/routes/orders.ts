@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import { db } from '../db';
-import { authenticateToken, requireAdmin, AuthenticatedRequest, JWT_SECRET } from '../middleware/auth';
+import { authenticateToken, requireAdmin, AuthenticatedRequest, JWT_SECRET, ALLOWED_STAFF_ROLES } from '../middleware/auth';
 import { notificationService } from '../services/notificationService';
 
 const router = Router();
@@ -121,11 +121,19 @@ router.get('/track/:query', async (req: Request, res: Response) => {
  * Get Order Tracking Events
  * GET /api/orders/:id/tracking
  */
-router.get('/:id/tracking', async (req: Request, res: Response) => {
+router.get('/:id/tracking', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const order = await db.getOrderById(req.params.id);
     if (!order) {
       res.status(404).json({ success: false, error: 'Order not found.' });
+      return;
+    }
+
+    const isOwner = req.user?.id && (String(req.user.id) === String(order.userId));
+    const isStaffOrAdmin = req.user?.role && ALLOWED_STAFF_ROLES.includes(req.user.role);
+
+    if (!isOwner && !isStaffOrAdmin) {
+      res.status(403).json({ success: false, error: 'Access denied: You do not have permission to view this order.' });
       return;
     }
 
@@ -175,13 +183,22 @@ router.get('/', requireAdmin, async (req: Request, res: Response) => {
  * Get Order by ID
  * GET /api/orders/:id
  */
-router.get('/:id', async (req: Request, res: Response) => {
+router.get('/:id', authenticateToken, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const order = await db.getOrderById(req.params.id);
     if (!order) {
       res.status(404).json({ success: false, error: 'Order not found.' });
       return;
     }
+
+    const isOwner = req.user?.id && (String(req.user.id) === String(order.userId));
+    const isStaffOrAdmin = req.user?.role && ALLOWED_STAFF_ROLES.includes(req.user.role);
+
+    if (!isOwner && !isStaffOrAdmin) {
+      res.status(403).json({ success: false, error: 'Access denied: You do not have permission to view this order.' });
+      return;
+    }
+
     res.json({ success: true, order });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message || 'Server error.' });

@@ -134,12 +134,15 @@ router.post('/webhook', async (req: Request, res: Response) => {
     const signature = req.headers['x-razorpay-signature'] as string;
     const rawPayload = JSON.stringify(req.body);
 
-    if (process.env.RAZORPAY_WEBHOOK_SECRET) {
-      const isValid = paymentService.verifyWebhookSignature(rawPayload, signature || '');
-      if (!isValid) {
-        res.status(400).json({ success: false, error: 'Invalid webhook signature.' });
-        return;
-      }
+    if (!process.env.RAZORPAY_WEBHOOK_SECRET) {
+      res.status(503).json({ success: false, error: 'Webhook processing is unavailable: webhook secret is not configured.' });
+      return;
+    }
+
+    const isValid = paymentService.verifyWebhookSignature(rawPayload, signature || '');
+    if (!isValid) {
+      res.status(400).json({ success: false, error: 'Invalid webhook signature.' });
+      return;
     }
 
     const event = req.body.event;

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { db } from '../db';
-import { requireAdmin, requireStaffOrAdmin } from '../middleware/auth';
+import { requireAdmin, requireStaffOrAdmin, requireSuperAdmin, AuthenticatedRequest } from '../middleware/auth';
 import { getServiceStatusSummary } from '../../api-key/api-keys';
 import { parcelJourneyService, JourneyStage } from '../services/parcelJourneyService';
 
@@ -98,7 +98,7 @@ router.put('/settings', async (req: Request, res: Response) => {
  * List Admins
  * GET /api/admin/users
  */
-router.get('/users', async (_req: Request, res: Response) => {
+router.get('/users', requireSuperAdmin, async (_req: Request, res: Response) => {
   try {
     const admins = await db.getAdmins();
     res.json({ success: true, admins });
@@ -111,7 +111,7 @@ router.get('/users', async (_req: Request, res: Response) => {
  * Create Admin
  * POST /api/admin/users
  */
-router.post('/users', async (req: Request, res: Response) => {
+router.post('/users', requireSuperAdmin, async (req: Request, res: Response) => {
   try {
     const { username, password, fullName, role, phone, email } = req.body;
     if (!username || !password || !fullName) {
@@ -128,7 +128,7 @@ router.post('/users', async (req: Request, res: Response) => {
  * Update Admin (status, password, role, details)
  * PUT /api/admin/users/:id
  */
-router.put('/users/:id', async (req: Request, res: Response) => {
+router.put('/users/:id', requireSuperAdmin, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { isActive, role, fullName, phone, email, password } = req.body;
@@ -143,11 +143,11 @@ router.put('/users/:id', async (req: Request, res: Response) => {
  * Delete Admin
  * DELETE /api/admin/users/:id
  */
-router.delete('/users/:id', async (req: Request, res: Response) => {
+router.delete('/users/:id', requireSuperAdmin, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const currentAdmin = (req as any).admin;
-    if (currentAdmin && currentAdmin.id === id) {
+    const currentUser = req.user;
+    if (currentUser && currentUser.id === id) {
       return res.status(400).json({ success: false, error: 'You cannot delete your own admin account.' });
     }
     const success = await db.deleteAdmin(id);

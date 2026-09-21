@@ -2,8 +2,17 @@ import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 
-// Secure JWT secret from environment or stable project fallback
-export const JWT_SECRET = process.env.JWT_SECRET || 'fashion-point-jwt-secret-stable-token-session-key-2026';
+function getJwtSecret(): string {
+  if (process.env.JWT_SECRET) {
+    return process.env.JWT_SECRET;
+  }
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('FATAL: JWT_SECRET environment variable is required in production mode.');
+  }
+  return crypto.randomBytes(32).toString('hex');
+}
+
+export const JWT_SECRET = getJwtSecret();
 
 export interface AuthenticatedRequest extends Request {
   user?: {

@@ -12,6 +12,7 @@ import customerRouter from './routes/customer';
 import postalRouter from './routes/postal';
 
 export const app = express();
+app.disable('x-powered-by');
 
 // Security & parsing middlewares
 app.use(express.json({ limit: '10mb' }));

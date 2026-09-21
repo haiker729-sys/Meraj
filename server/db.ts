@@ -916,8 +916,7 @@ class PostgresDatabaseManager {
       }
 
       // 5. Generate identifiers
-      const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-      const orderId = `FP-2026-${Date.now().toString().slice(-4)}${randomSuffix.toString().slice(-2)}`;
+      const orderId = `FP-2026-${crypto.randomBytes(5).toString('hex').toUpperCase()}`;
       const invoiceNumber = `INV-FP-2026-${Date.now().toString().slice(-6)}`;
       const trackingNumber = `DEL-${Date.now().toString().slice(-7)}`;
       const trackingToken = `tk_${crypto.randomBytes(12).toString('hex')}`;
